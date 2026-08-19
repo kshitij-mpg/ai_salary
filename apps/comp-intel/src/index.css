@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --gold: #c9a227;
+  --teal: #5ecfc0;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(201, 162, 39, 0.08), transparent 55%),
+    radial-gradient(900px 500px at 110% 0%, rgba(47, 158, 148, 0.1), transparent 50%),
+    #070b12;
+}
+
+.grain {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+}
+
+.hairline {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(201, 162, 39, 0.55), transparent);
+}
+
+.glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.018));
+  border: 1px solid rgba(232, 213, 163, 0.12);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(18px);
+}
+
+.gold-rule {
+  border-top: 1px solid rgba(201, 162, 39, 0.28);
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise {
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.rise-d1 { animation-delay: 0.08s; }
+.rise-d2 { animation-delay: 0.16s; }
+.rise-d3 { animation-delay: 0.24s; }
+.rise-d4 { animation-delay: 0.32s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .rise-d1,
+  .rise-d2,
+  .rise-d3,
+  .rise-d4 {
+    animation: none;
+  }
+}
+
+*:focus-visible {
+  outline: 2px solid #e8d5a3;
+  outline-offset: 3px;
+}
+
+.kbd-chip {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 10px;
+  color: #9a9484;
+}
+
+input[type="search"]::-webkit-search-cancel-button {
+  filter: invert(1);
+}
+
+@media print {
+  .grain,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #0b1018 !important;
+    color: #ebe6d8 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-sheet {
+    display: block !important;
+  }
+  .screen-app {
+    display: none !important;
+  }
+}
