@@ -2,7 +2,18 @@ export type CountryCode = "US" | "IN" | "GB" | "AE" | "AU" | "NZ" | "DE" | strin
 export type PayType = "Base_Salary" | "Total_Compensation" | "Mixed" | string;
 export type Confidence = "HIGH" | "MEDIUM" | "LOW" | string;
 export type MetricMode = "nominal" | "ppp";
-export type ViewId = "brief" | "explorer" | "compare" | "studio" | "method" | "snapshot";
+export type ViewId =
+  | "desk"
+  | "gap"
+  | "flight"
+  | "peers"
+  | "portfolio"
+  | "scenarios"
+  | "evidence"
+  | "method";
+
+export type RiskTier = "critical" | "high" | "watch" | "stable" | "premium";
+export type GapVerdict = "underpaid" | "at_market" | "overpaid";
 
 export interface Observation {
   id: string;
@@ -74,6 +85,27 @@ export interface Catalog {
   worldBankPpp: Record<string, number>;
 }
 
+/** Incumbent the business is assessing. */
+export interface IncumbentProfile {
+  label: string;
+  countryCode: string;
+  roleFamily: string;
+  roleName: string;
+  experienceLevel: string;
+  city: string;
+  payType: PayType;
+  /** Annual pay in INR (cash / nominal). */
+  currentPayInr: number;
+  currencyInput: "INR" | "USD" | "local";
+  /** Raw amount typed before conversion (for display). */
+  rawAmount: number;
+  notes: string;
+}
+
+export interface PortfolioPerson extends IncumbentProfile {
+  id: string;
+}
+
 export interface Filters {
   countries: string[];
   roleFamilies: string[];
@@ -83,7 +115,87 @@ export interface Filters {
   sources: string[];
   cities: string[];
   allowMixPayTypes: boolean;
-  observationMedian: boolean;
+}
+
+export interface MarketBand {
+  p10: number | null;
+  p25: number | null;
+  p50: number | null;
+  p75: number | null;
+  p90: number | null;
+  min: number | null;
+  max: number | null;
+  mean: number | null;
+  n: number;
+  sourceCount: number;
+  directional: boolean;
+}
+
+export interface SourcePull {
+  sourceName: string;
+  sourceType: string;
+  n: number;
+  medianPay: number;
+  premiumVsYou: number;
+  premiumPct: number;
+  isEmployerFiling: boolean;
+  sampleRoles: string[];
+}
+
+export interface DestinationPull {
+  key: string;
+  label: string;
+  kind: "city" | "country" | "industry" | "source";
+  n: number;
+  medianPay: number;
+  premiumVsYou: number;
+  premiumPct: number;
+}
+
+export interface GapAnalysis {
+  yourPay: number;
+  metric: MetricMode;
+  band: MarketBand;
+  /** 0–100 approximate percentile among observations. */
+  percentileRank: number | null;
+  gapVsP50: number | null;
+  gapVsP50Pct: number | null;
+  gapVsP25: number | null;
+  gapVsP75: number | null;
+  verdict: GapVerdict;
+  riskTier: RiskTier;
+  riskScore: number;
+  riskReasons: string[];
+  competitiveAbove: number;
+  competitiveAbovePct: number;
+  sliceLabel: string;
+  matched: Observation[];
+  aboveYou: Observation[];
+}
+
+export interface ScenarioResult {
+  id: string;
+  label: string;
+  targetPay: number;
+  deltaPay: number;
+  deltaPct: number;
+  newRiskTier: RiskTier;
+  newRiskScore: number;
+  newPercentile: number | null;
+  closesGapToP50: boolean;
+}
+
+export interface SourceGroup {
+  sourceName: string;
+  sourceType: string;
+  n: number;
+  values: number[];
+  minPublished: number | null;
+  medianPublished: number | null;
+  maxPublished: number | null;
+  rows: Observation[];
+  isEmployerFiling: boolean;
+  kind: "published_range" | "observation_set";
 }
 
 export interface SourceGroup {

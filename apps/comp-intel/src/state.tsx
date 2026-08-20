@@ -8,8 +8,23 @@ import {
   type Dispatch,
   type ReactNode,
 } from "react";
-import type { Catalog, Filters, MetricMode, Observation, ViewId } from "./types";
-import { defaultFilters, applyFilters } from "./lib/filters";
+import type {
+  Catalog,
+  GapAnalysis,
+  IncumbentProfile,
+  MetricMode,
+  Observation,
+  PortfolioPerson,
+  ViewId,
+} from "./types";
+import {
+  analyzeGap,
+  defaultProfile,
+  sliceLabelFromProfile,
+  toAnnualInr,
+} from "./lib/analysis";
+import { STORAGE_PORTFOLIO, STORAGE_PROFILE } from "./lib/constants";
+import { matchMarket } from "./lib/filters";
 
 export interface AppData {
   observations: Observation[];
@@ -22,9 +37,10 @@ interface State {
   data: AppData | null;
   view: ViewId;
   metric: MetricMode;
-  filters: Filters;
+  profile: IncumbentProfile;
+  portfolio: PortfolioPerson[];
   selectedId: string | null;
-  briefCountry: string;
+  customRaisePct: number;
 }
 
 type Action =
@@ -32,21 +48,44 @@ type Action =
   | { type: "failed"; error: string }
   | { type: "view"; view: ViewId }
   | { type: "metric"; metric: MetricMode }
-  | { type: "filters"; filters: Partial<Filters> }
-  | { type: "resetFilters" }
+  | { type: "profile"; patch: Partial<IncumbentProfile> }
+  | { type: "setProfile"; profile: IncumbentProfile }
+  | { type: "portfolio"; portfolio: PortfolioPerson[] }
+  | { type: "addPortfolio"; person: PortfolioPerson }
+  | { type: "removePortfolio"; id: string }
   | { type: "select"; id: string | null }
-  | { type: "briefCountry"; code: string }
-  | { type: "drillCountry"; code: string };
+  | { type: "customRaise"; pct: number };
+
+function loadProfile(): IncumbentProfile {
+  try {
+    const raw = localStorage.getItem(STORAGE_PROFILE);
+    if (raw) return { ...defaultProfile(), ...JSON.parse(raw) };
+  } catch {
+    /* ignore */
+  }
+  return defaultProfile();
+}
+
+function loadPortfolio(): PortfolioPerson[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_PORTFOLIO);
+    if (raw) return JSON.parse(raw) as PortfolioPerson[];
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
 
 const initial: State = {
   loading: true,
   error: null,
   data: null,
-  view: "brief",
+  view: "desk",
   metric: "nominal",
-  filters: defaultFilters(),
+  profile: loadProfile(),
+  portfolio: loadPortfolio(),
   selectedId: null,
-  briefCountry: "IN",
+  customRaisePct: 12,
 };
 
 function reducer(state: State, action: Action): State {
@@ -59,20 +98,33 @@ function reducer(state: State, action: Action): State {
       return { ...state, view: action.view };
     case "metric":
       return { ...state, metric: action.metric };
-    case "filters":
-      return { ...state, filters: { ...state.filters, ...action.filters } };
-    case "resetFilters":
-      return { ...state, filters: defaultFilters() };
+    case "profile": {
+      const next = { ...state.profile, ...action.patch };
+      if (
+        action.patch.rawAmount != null ||
+        action.patch.currencyInput != null ||
+        action.patch.countryCode != null
+      ) {
+        next.currentPayInr = toAnnualInr(
+          next.rawAmount,
+          next.currencyInput,
+          next.countryCode,
+        );
+      }
+      return { ...state, profile: next };
+    }
+    case "setProfile":
+      return { ...state, profile: action.profile };
+    case "portfolio":
+      return { ...state, portfolio: action.portfolio };
+    case "addPortfolio":
+      return { ...state, portfolio: [...state.portfolio, action.person] };
+    case "removePortfolio":
+      return { ...state, portfolio: state.portfolio.filter((p) => p.id !== action.id) };
     case "select":
       return { ...state, selectedId: action.id };
-    case "briefCountry":
-      return { ...state, briefCountry: action.code };
-    case "drillCountry":
-      return {
-        ...state,
-        view: "explorer",
-        filters: { ...state.filters, countries: [action.code] },
-      };
+    case "customRaise":
+      return { ...state, customRaisePct: action.pct };
     default:
       return state;
   }
@@ -101,6 +153,22 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       );
   }, []);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_PROFILE, JSON.stringify(state.profile));
+    } catch {
+      /* ignore */
+    }
+  }, [state.profile]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_PORTFOLIO, JSON.stringify(state.portfolio));
+    } catch {
+      /* ignore */
+    }
+  }, [state.portfolio]);
+
   return <Ctx.Provider value={{ state, dispatch }}>{children}</Ctx.Provider>;
 }
 
@@ -110,18 +178,32 @@ export function useApp() {
   return ctx;
 }
 
-export function useFiltered(): Observation[] {
+export function useMarketMatch() {
   const { state } = useApp();
   return useMemo(() => {
-    if (!state.data) return [];
-    return applyFilters(state.data.observations, state.filters);
-  }, [state.data, state.filters]);
+    if (!state.data) return { matched: [] as Observation[], relaxNotes: [] as string[] };
+    return matchMarket(state.data.observations, state.profile);
+  }, [state.data, state.profile]);
 }
 
-export function useSetFilter() {
+export function useGapAnalysis(): GapAnalysis | null {
+  const { state } = useApp();
+  const { matched } = useMarketMatch();
+  return useMemo(() => {
+    if (!matched.length || !state.profile.currentPayInr) return null;
+    return analyzeGap(
+      matched,
+      state.profile.currentPayInr,
+      state.metric,
+      sliceLabelFromProfile(state.profile),
+    );
+  }, [matched, state.profile, state.metric]);
+}
+
+export function useUpdateProfile() {
   const { dispatch } = useApp();
   return useCallback(
-    (patch: Partial<Filters>) => dispatch({ type: "filters", filters: patch }),
+    (patch: Partial<IncumbentProfile>) => dispatch({ type: "profile", patch }),
     [dispatch],
   );
 }

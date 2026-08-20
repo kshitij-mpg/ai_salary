@@ -1,12 +1,14 @@
 import { AppStateProvider, useApp } from "./state";
 import { PageShell, TopBar } from "./components/Layout";
 import { SkeletonBlock } from "./components/ui";
-import { ExecutiveBrief } from "./views/ExecutiveBrief";
-import { MarketExplorer } from "./views/MarketExplorer";
-import { RoleComparator } from "./views/RoleComparator";
-import { SourceStudio } from "./views/SourceStudio";
-import { MethodTrust } from "./views/MethodTrust";
-import { ClientSnapshot } from "./views/ClientSnapshot";
+import { DeskHome } from "./views/DeskHome";
+import { GapLab } from "./views/GapLab";
+import { FlightRisk } from "./views/FlightRisk";
+import { PeerPull } from "./views/PeerPull";
+import { ScenariosView } from "./views/Scenarios";
+import { PortfolioView } from "./views/Portfolio";
+import { EvidenceView } from "./views/Evidence";
+import { MethodView } from "./views/Method";
 
 function Screen() {
   const { state } = useApp();
@@ -14,18 +16,18 @@ function Screen() {
   if (state.loading) {
     return (
       <div className="screen-app">
-        <div className="border-b border-gold/10 px-8 py-4">
+        <div className="border-b border-ink/8 px-8 py-4">
           <SkeletonBlock className="h-10 w-64" />
         </div>
-        <div className="mx-auto max-w-[1600px] px-8 py-10">
-          <SkeletonBlock className="h-16 w-96" />
-          <div className="mt-10 grid grid-cols-4 gap-6">
+        <div className="mx-auto max-w-[1440px] px-8 py-10">
+          <SkeletonBlock className="h-14 w-[28rem]" />
+          <div className="mt-10 grid grid-cols-4 gap-4">
             <SkeletonBlock className="h-28" />
             <SkeletonBlock className="h-28" />
             <SkeletonBlock className="h-28" />
             <SkeletonBlock className="h-28" />
           </div>
-          <SkeletonBlock className="mt-10 h-72" />
+          <SkeletonBlock className="mt-8 h-72" />
         </div>
       </div>
     );
@@ -44,31 +46,27 @@ function Screen() {
   }
 
   const view = {
-    brief: <ExecutiveBrief />,
-    explorer: <MarketExplorer />,
-    compare: <RoleComparator />,
-    studio: <SourceStudio />,
-    method: <MethodTrust />,
-    snapshot: <ClientSnapshot />,
+    desk: <DeskHome />,
+    gap: <GapLab />,
+    flight: <FlightRisk />,
+    peers: <PeerPull />,
+    scenarios: <ScenariosView />,
+    portfolio: <PortfolioView />,
+    evidence: <EvidenceView />,
+    method: <MethodView />,
   }[state.view];
 
   return (
-    <>
-      <div className="screen-app">
-        <TopBar />
-        <PageShell>{view}</PageShell>
-      </div>
-      <div className="hidden print:block">
-        <ClientSnapshot />
-      </div>
-    </>
+    <div className="screen-app">
+      <TopBar />
+      <PageShell>{view}</PageShell>
+    </div>
   );
 }
 
 export default function App() {
   return (
     <AppStateProvider>
-      <div className="grain" aria-hidden />
       <Screen />
     </AppStateProvider>
   );

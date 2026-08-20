@@ -47,9 +47,27 @@ export const PAY_TYPE_LABEL: Record<string, string> = {
   Mixed: "Mixed (base + TC)",
 };
 
-export const AIML_FAMILIES = ["AI Engineer", "Machine Learning Engineer"];
-
 export const DIRECTIONAL_N = 30;
 
+export const RISK_LABEL: Record<string, string> = {
+  critical: "Critical flight risk",
+  high: "High flight risk",
+  watch: "Watch list",
+  stable: "Market-stable",
+  premium: "Above-market premium",
+};
+
+export const VERDICT_LABEL: Record<string, string> = {
+  underpaid: "Underpaid vs market",
+  at_market: "At market",
+  overpaid: "Above market",
+};
+
+export const PRODUCT_NAME = "PayRisk Desk";
+export const PRODUCT_TAGLINE = "Know if you are underpaying — and who could poach them.";
+
 export const OBSERVATION_DISCLAIMER =
-  "Each mark is a published source observation — not a person, not an employee, not a company headcount.";
+  "Each mark is a published source observation — not a person, not payroll headcount. Risk scores are directional decision aids, not predictions of resignation.";
+
+export const STORAGE_PORTFOLIO = "payrisk-portfolio-v1";
+export const STORAGE_PROFILE = "payrisk-profile-v1";
