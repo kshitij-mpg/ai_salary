@@ -43,15 +43,12 @@ export function formatCompactINR(n: number | null | undefined): string {
   return formatINR(n);
 }
 
-export function formatCount(n: number): string {
-  return new Intl.NumberFormat("en-IN").format(n);
+export function formatPct(n: number | null | undefined, digits = 0): string {
+  if (!isPresent(n)) return "—";
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(digits)}%`;
 }
 
-export function formatDateISO(iso: string): string {
-  if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const mi = Number(m);
-  if (!y || !mi) return iso;
-  return `${d} ${months[mi - 1]} ${y}`;
+export function formatCount(n: number): string {
+  return new Intl.NumberFormat("en-IN").format(n);
 }

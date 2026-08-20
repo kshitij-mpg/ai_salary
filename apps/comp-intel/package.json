@@ -1,14 +1,14 @@
 {
-  "name": "comp-intel",
+  "name": "payrisk-desk",
   "private": true,
-  "version": "1.0.0",
-  "description": "Source-backed AI compensation intelligence dashboard (observations, not a people database).",
+  "version": "2.0.0",
+  "description": "PayRisk Desk — under/over-pay gap, flight risk, and poach destinations from published AI compensation observations.",
   "type": "module",
   "scripts": {
     "ingest": "node scripts/ingest.mjs",
-    "dev": "node scripts/ingest.mjs && node scripts/serve.mjs",
-    "start": "node scripts/ingest.mjs && node scripts/serve.mjs",
-    "dev:vite": "node scripts/ingest.mjs && vite",
+    "dev": "node scripts/ingest.mjs && vite",
+    "start": "node scripts/ingest.mjs && vite",
+    "dev:static": "node scripts/ingest.mjs && node scripts/serve.mjs",
     "build": "node scripts/ingest.mjs && tsc -b && vite build",
     "preview": "vite preview",
     "verify:ppp": "node scripts/verify-ppp.mjs"

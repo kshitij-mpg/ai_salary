@@ -1,194 +1,142 @@
 import type { ReactNode } from "react";
-import { DIRECTIONAL_N, PAY_TYPE_LABEL } from "../lib/constants";
-import { formatCompactINR, formatCount, formatINR } from "../lib/money";
+import type { RiskTier, GapVerdict } from "../types";
+import { RISK_LABEL, VERDICT_LABEL } from "../lib/constants";
 
 export function Eyebrow({ children }: { children: ReactNode }) {
-  return <div className="kbd-chip">{children}</div>;
-}
-
-export function GoldRule({ className = "" }: { className?: string }) {
-  return <div className={`hairline ${className}`} />;
+  return <p className="eyebrow">{children}</p>;
 }
 
 export function Card({
   children,
   className = "",
-  padded = true,
 }: {
   children: ReactNode;
   className?: string;
-  padded?: boolean;
 }) {
-  return <div className={`glass rounded-2xl ${padded ? "p-5 md:p-6" : ""} ${className}`}>{children}</div>;
-}
-
-export function Kpi({
-  label,
-  value,
-  hint,
-  delay = "",
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  delay?: string;
-}) {
-  return (
-    <div className={`rise ${delay} min-h-[104px]`}>
-      <div className="kbd-chip">{label}</div>
-      <div className="mt-2 font-display text-4xl leading-none text-parchment md:text-5xl tabular">{value}</div>
-      {hint ? <div className="mt-2 text-xs text-mute">{hint}</div> : null}
-    </div>
-  );
-}
-
-export function NBadge({ n }: { n: number }) {
-  const directional = n > 0 && n < DIRECTIONAL_N;
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/20 bg-gold/5 px-2 py-0.5 text-[10px] uppercase tracking-wider text-gold-soft">
-      <span className="tabular">n={formatCount(n)}</span>
-      {directional ? (
-        <span className="rounded-full bg-gold/15 px-1.5 py-px text-[9px] text-gold">Directional only</span>
-      ) : null}
-    </span>
-  );
-}
-
-export function ConfidencePill({ score }: { score: string }) {
-  const tone =
-    score === "HIGH"
-      ? "border-teal/40 text-teal-bright"
-      : score === "MEDIUM"
-        ? "border-gold/40 text-gold-soft"
-        : "border-rose/40 text-rose";
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${tone}`}>
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${score === "HIGH" ? "bg-teal-bright" : score === "MEDIUM" ? "bg-gold" : "bg-rose"}`}
-        aria-hidden
-      />
-      {score || "—"}
-    </span>
-  );
-}
-
-export function PayTypeLabel({ type }: { type: string }) {
-  return <span>{PAY_TYPE_LABEL[type] ?? type.replaceAll("_", " ")}</span>;
-}
-
-export function MixWarning({ show }: { show: boolean }) {
-  if (!show) return null;
-  return (
-    <div
-      role="status"
-      className="rounded-xl border border-rose/40 bg-rose/10 px-4 py-3 text-sm text-parchment"
-    >
-      You are mixing pay types in one view. Base salary and total compensation are not like-for-like.
-      Switch back to a single pay type unless the mix is intentional.
-    </div>
-  );
-}
-
-export function EmptyState({ onReset }: { onReset?: () => void }) {
-  return (
-    <div className="flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-gold/25 px-6 text-center">
-      <div className="kbd-chip">No observations in this slice</div>
-      <p className="mt-3 max-w-md text-sm text-mute">
-        Widen filters — start with pay type, then country, role family, and experience. Blank money
-        fields are unpublished, never zero.
-      </p>
-      {onReset ? (
-        <button
-          type="button"
-          onClick={onReset}
-          className="mt-4 rounded-full border border-gold/40 px-4 py-1.5 text-xs uppercase tracking-widest text-gold-soft hover:bg-gold/10"
-        >
-          Reset to base salary
-        </button>
-      ) : null}
-    </div>
-  );
+  return <div className={`panel ${className}`}>{children}</div>;
 }
 
 export function SkeletonBlock({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-2xl bg-white/5 ${className}`} />;
-}
-
-export function Money({
-  n,
-  compact = false,
-  className = "",
-}: {
-  n: number | null | undefined;
-  compact?: boolean;
-  className?: string;
-}) {
-  return (
-    <span className={`tabular ${className}`} title={formatINR(n)}>
-      {compact ? formatCompactINR(n) : formatINR(n)}
-    </span>
-  );
-}
-
-export function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
-  ariaLabel,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { id: T; label: string }[];
-  ariaLabel: string;
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label={ariaLabel}
-      className="inline-flex rounded-full border border-gold/20 bg-ink-100 p-0.5"
-    >
-      {options.map((o) => {
-        const on = o.id === value;
-        return (
-          <button
-            key={o.id}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            onClick={() => onChange(o.id)}
-            className={`rounded-full px-3 py-1 text-xs tracking-wide transition ${
-              on ? "bg-gold text-ink" : "text-mute hover:text-parchment"
-            }`}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+  return <div className={`animate-pulse rounded-xl bg-ink-200/80 ${className}`} />;
 }
 
 export function Chip({
+  children,
   active,
   onClick,
-  children,
 }: {
-  active: boolean;
-  onClick: () => void;
   children: ReactNode;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <button
       type="button"
-      aria-pressed={active}
       onClick={onClick}
-      className={`rounded-full border px-2.5 py-1 text-xs transition ${
+      className={`rounded-md px-2.5 py-1 text-xs transition ${
         active
-          ? "border-gold bg-gold/15 text-gold-soft"
-          : "border-white/10 text-mute hover:border-gold/30 hover:text-parchment"
+          ? "bg-copper text-paper font-medium"
+          : "bg-ink-100 text-mute hover:bg-ink-200 hover:text-ink"
       }`}
     >
       {children}
     </button>
   );
 }
+
+export function RiskBadge({ tier, score }: { tier: RiskTier; score?: number }) {
+  const tone: Record<RiskTier, string> = {
+    critical: "badge-critical",
+    high: "badge-high",
+    watch: "badge-watch",
+    stable: "badge-stable",
+    premium: "badge-premium",
+  };
+  return (
+    <span className={`badge ${tone[tier]}`}>
+      {RISK_LABEL[tier]}
+      {score != null ? ` · ${score}` : ""}
+    </span>
+  );
+}
+
+export function VerdictBadge({ verdict }: { verdict: GapVerdict }) {
+  const tone: Record<GapVerdict, string> = {
+    underpaid: "badge-critical",
+    at_market: "badge-stable",
+    overpaid: "badge-premium",
+  };
+  return <span className={`badge ${tone[verdict]}`}>{VERDICT_LABEL[verdict]}</span>;
+}
+
+export function Stat({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  tone?: "default" | "danger" | "ok" | "warn";
+}) {
+  const color =
+    tone === "danger"
+      ? "text-crimson"
+      : tone === "ok"
+        ? "text-forest"
+        : tone === "warn"
+          ? "text-amber"
+          : "text-ink";
+  return (
+    <div className="min-w-0">
+      <div className="eyebrow">{label}</div>
+      <div className={`mt-1 font-display text-2xl tabular leading-none ${color}`}>{value}</div>
+      {hint ? <p className="mt-1.5 text-xs text-mute">{hint}</p> : null}
+    </div>
+  );
+}
+
+export function SectionTitle({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <header className="mb-5">
+      <h2 className="font-display text-3xl text-ink leading-tight">{title}</h2>
+      {subtitle ? <p className="mt-2 max-w-2xl text-sm text-mute leading-relaxed">{subtitle}</p> : null}
+    </header>
+  );
+}
+
+export function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <Card className="p-8 text-center">
+      <h3 className="font-display text-2xl">{title}</h3>
+      <p className="mx-auto mt-2 max-w-md text-sm text-mute">{body}</p>
+    </Card>
+  );
+}
+
+export function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="block min-w-0">
+      <span className="eyebrow mb-1.5 block">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+export const inputClass =
+  "w-full rounded-lg border border-ink/10 bg-paper px-3 py-2 text-sm text-ink shadow-sm outline-none focus:border-copper/50 focus:ring-2 focus:ring-copper/20";
+
+export const selectClass = inputClass;

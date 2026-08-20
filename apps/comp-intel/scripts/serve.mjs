@@ -68,6 +68,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`Comp Intel running at http://127.0.0.1:${port}`);
-  console.log("Offline · source observations, not a people database.");
+  console.log(`PayRisk Desk at http://127.0.0.1:${port}`);
+  console.log("Offline · under/overpay + flight risk from source observations.");
 });

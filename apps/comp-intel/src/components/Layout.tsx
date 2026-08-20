@@ -1,36 +1,46 @@
-import type { MetricMode, ViewId } from "../types";
-import { FX_DATE, FX_USD_INR, OBSERVATION_DISCLAIMER } from "../lib/constants";
+import type { ReactNode } from "react";
 import { useApp } from "../state";
-import { Segmented } from "./ui";
+import type { ViewId } from "../types";
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from "../lib/constants";
+import { formatCompactINR } from "../lib/money";
 
-const NAV: { id: ViewId; label: string }[] = [
-  { id: "brief", label: "Brief" },
-  { id: "explorer", label: "Explorer" },
-  { id: "compare", label: "Comparator" },
-  { id: "studio", label: "Studio" },
-  { id: "method", label: "Method" },
-  { id: "snapshot", label: "Snapshot" },
+const NAV: { id: ViewId; label: string; hint: string }[] = [
+  { id: "desk", label: "Desk", hint: "Incumbent verdict" },
+  { id: "gap", label: "Gap Lab", hint: "Where you sit" },
+  { id: "flight", label: "Flight Risk", hint: "Leave probability aid" },
+  { id: "peers", label: "Who Pulls", hint: "Poach destinations" },
+  { id: "scenarios", label: "Scenarios", hint: "Fix the gap" },
+  { id: "portfolio", label: "Portfolio", hint: "Team risk board" },
+  { id: "evidence", label: "Evidence", hint: "Source rows" },
+  { id: "method", label: "Method", hint: "How to trust it" },
 ];
 
 export function TopBar() {
   const { state, dispatch } = useApp();
   return (
-    <header className="no-print sticky top-0 z-40 border-b border-gold/10 bg-ink/80 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-[1600px] items-center gap-4 px-4 py-3 md:px-8">
-        <div className="min-w-[160px]">
-          <div className="font-display text-xl tracking-wide text-gold-soft">Comp Intel</div>
-          <div className="kbd-chip -mt-0.5">AI compensation atlas</div>
+    <header className="sticky top-0 z-40 border-b border-ink/8 bg-paper/90 backdrop-blur-md">
+      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-4 px-5 py-3 lg:px-8">
+        <div className="mr-2 min-w-0">
+          <div className="flex items-baseline gap-2">
+            <span className="font-display text-xl tracking-tight text-ink">{PRODUCT_NAME}</span>
+            <span className="hidden text-[10px] uppercase tracking-[0.2em] text-copper sm:inline">
+              Comp risk
+            </span>
+          </div>
+          <p className="truncate text-xs text-mute">{PRODUCT_TAGLINE}</p>
         </div>
-        <nav className="flex flex-1 flex-wrap items-center justify-center gap-1" aria-label="Primary">
+
+        <nav className="flex min-w-0 flex-1 flex-wrap gap-1" aria-label="Primary">
           {NAV.map((item) => {
             const on = state.view === item.id;
             return (
               <button
                 key={item.id}
                 type="button"
+                title={item.hint}
                 onClick={() => dispatch({ type: "view", view: item.id })}
-                className={`rounded-full px-3 py-1.5 text-xs uppercase tracking-[0.16em] transition ${
-                  on ? "bg-gold/15 text-gold-soft" : "text-mute hover:text-parchment"
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                  on ? "bg-ink text-paper" : "text-mute hover:bg-ink-50 hover:text-ink"
                 }`}
               >
                 {item.label}
@@ -38,39 +48,47 @@ export function TopBar() {
             );
           })}
         </nav>
-        <div className="flex items-center gap-3">
-          <Segmented<MetricMode>
-            ariaLabel="Salary metric"
-            value={state.metric}
-            onChange={(metric) => dispatch({ type: "metric", metric })}
-            options={[
-              { id: "nominal", label: "FX ₹" },
-              { id: "ppp", label: "PPP ₹" },
-            ]}
-          />
+
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => window.print()}
-            className="hidden rounded-full border border-gold/30 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-gold-soft hover:bg-gold/10 md:inline"
+            title="Edit offered pay on Desk"
+            onClick={() => dispatch({ type: "view", view: "desk" })}
+            className="hidden items-center gap-2 rounded-xl border-2 border-copper/40 bg-copper/10 px-3 py-2 text-left transition hover:border-copper hover:bg-copper/15 md:flex"
           >
-            Print
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-copper">
+              Paying
+            </span>
+            <span className="font-display text-base tabular leading-none text-ink">
+              {formatCompactINR(state.profile.currentPayInr)}
+            </span>
           </button>
+          <div className="flex rounded-lg border border-ink/10 p-0.5 text-xs">
+            <button
+              type="button"
+              className={`rounded-md px-2 py-1 ${state.metric === "nominal" ? "bg-copper text-paper" : "text-mute"}`}
+              onClick={() => dispatch({ type: "metric", metric: "nominal" })}
+            >
+              FX ₹
+            </button>
+            <button
+              type="button"
+              className={`rounded-md px-2 py-1 ${state.metric === "ppp" ? "bg-copper text-paper" : "text-mute"}`}
+              onClick={() => dispatch({ type: "metric", metric: "ppp" })}
+            >
+              PPP ₹
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="border-t border-white/5 px-4 py-1.5 text-center text-[11px] text-mute md:px-8">
-        {state.metric === "ppp"
-          ? "PPP uses corrected purchasing-power INR (job country, World Bank PA.NUS.PPP). Bundled CSV PPP matches that formula for India USD rows."
-          : `Nominal INR converted at study FX · 1 USD = ₹${FX_USD_INR} as of ${FX_DATE}. Not a people database.`}
       </div>
     </header>
   );
 }
 
-export function PageShell({ children }: { children: React.ReactNode }) {
+export function PageShell({ children }: { children: ReactNode }) {
   return (
-    <main className="mx-auto w-full max-w-[1600px] px-4 py-8 md:px-8 md:py-10">
-      <p className="sr-only">{OBSERVATION_DISCLAIMER}</p>
-      {children}
+    <main className="mx-auto max-w-[1440px] px-5 py-8 lg:px-8">
+      <div className="rise">{children}</div>
     </main>
   );
 }

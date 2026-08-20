@@ -1,4 +1,4 @@
-import type { Filters, Observation } from "../types";
+import type { Filters, IncumbentProfile, Observation } from "../types";
 
 export const defaultFilters = (): Filters => ({
   countries: [],
@@ -9,12 +9,24 @@ export const defaultFilters = (): Filters => ({
   sources: [],
   cities: [],
   allowMixPayTypes: false,
-  observationMedian: false,
 });
 
 function inSet(selected: string[], value: string): boolean {
   if (!selected.length) return true;
   return selected.includes(value);
+}
+
+export function filtersFromProfile(p: IncumbentProfile): Filters {
+  return {
+    countries: p.countryCode ? [p.countryCode] : [],
+    roleFamilies: p.roleFamily ? [p.roleFamily] : [],
+    roleNames: p.roleName ? [p.roleName] : [],
+    experienceLevels: p.experienceLevel ? [p.experienceLevel] : [],
+    payTypes: [p.payType],
+    sources: [],
+    cities: p.city ? [p.city] : [],
+    allowMixPayTypes: false,
+  };
 }
 
 export function applyFilters(rows: Observation[], filters: Filters): Observation[] {
@@ -38,7 +50,71 @@ export function applyFilters(rows: Observation[], filters: Filters): Observation
   });
 }
 
+/**
+ * Progressive match: prefer exact slice; if thin, relax city then experience
+ * "All Levels" fallback so the desk still answers.
+ */
+export function matchMarket(
+  rows: Observation[],
+  profile: IncumbentProfile,
+): { matched: Observation[]; relaxNotes: string[] } {
+  const relaxNotes: string[] = [];
+  const base: Filters = {
+    countries: profile.countryCode ? [profile.countryCode] : [],
+    roleFamilies: profile.roleFamily ? [profile.roleFamily] : [],
+    roleNames: profile.roleName ? [profile.roleName] : [],
+    experienceLevels: profile.experienceLevel ? [profile.experienceLevel] : [],
+    payTypes: [profile.payType],
+    sources: [],
+    cities: profile.city ? [profile.city] : [],
+    allowMixPayTypes: false,
+  };
+
+  let matched = applyFilters(rows, base);
+  if (matched.length >= 8) return { matched, relaxNotes };
+
+  if (profile.city) {
+    matched = applyFilters(rows, { ...base, cities: [] });
+    relaxNotes.push("City filter relaxed — national / multi-city slice.");
+    if (matched.length >= 8) return { matched, relaxNotes };
+  }
+
+  if (profile.roleName) {
+    matched = applyFilters(rows, { ...base, cities: [], roleNames: [] });
+    relaxNotes.push("Specific role title relaxed — using role family.");
+    if (matched.length >= 8) return { matched, relaxNotes };
+  }
+
+  if (profile.experienceLevel && !profile.experienceLevel.startsWith("All")) {
+    const withAll = applyFilters(rows, {
+      ...base,
+      cities: [],
+      roleNames: profile.roleName ? [] : base.roleNames,
+      experienceLevels: [profile.experienceLevel, "All Levels (unspecified)"],
+    });
+    if (withAll.length > matched.length) {
+      matched = withAll;
+      relaxNotes.push("Included “All Levels (unspecified)” observations.");
+    }
+  }
+
+  if (matched.length < 5 && profile.roleFamily) {
+    matched = applyFilters(rows, {
+      countries: base.countries,
+      roleFamilies: base.roleFamilies,
+      roleNames: [],
+      experienceLevels: [],
+      payTypes: base.payTypes,
+      sources: [],
+      cities: [],
+      allowMixPayTypes: false,
+    });
+    relaxNotes.push("Experience relaxed — family × country × pay type only.");
+  }
+
+  return { matched, relaxNotes };
+}
+
 export function mixedPayTypes(rows: Observation[]): boolean {
-  const set = new Set(rows.map((o) => o.payType));
-  return set.size > 1;
+  return new Set(rows.map((o) => o.payType)).size > 1;
 }
