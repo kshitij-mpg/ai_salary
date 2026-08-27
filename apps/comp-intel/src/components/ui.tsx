@@ -1,6 +1,11 @@
 import type { ReactNode } from "react";
-import type { RiskTier, GapVerdict } from "../types";
+import type { RiskTier, GapVerdict, MarketPosition, PayGapClass, CompetitiveThreatTier } from "../types";
 import { RISK_LABEL, VERDICT_LABEL } from "../lib/constants";
+import {
+  MARKET_POSITION_LABEL,
+  PAY_GAP_LABEL,
+  THREAT_LABEL,
+} from "../lib/marketBenchmark";
 
 export function Eyebrow({ children }: { children: ReactNode }) {
   return <p className="eyebrow">{children}</p>;
@@ -67,6 +72,43 @@ export function VerdictBadge({ verdict }: { verdict: GapVerdict }) {
     overpaid: "badge-premium",
   };
   return <span className={`badge ${tone[verdict]}`}>{VERDICT_LABEL[verdict]}</span>;
+}
+
+export function MarketPositionBadge({ position }: { position: MarketPosition }) {
+  const tone: Record<MarketPosition, string> = {
+    significantly_underpaid: "badge-critical",
+    underpaid: "badge-high",
+    market_competitive: "badge-stable",
+    highly_competitive: "badge-watch",
+    market_leading: "badge-premium",
+  };
+  return <span className={`badge ${tone[position]}`}>{MARKET_POSITION_LABEL[position]}</span>;
+}
+
+export function PayGapBadge({ gapClass }: { gapClass: PayGapClass }) {
+  const tone: Record<PayGapClass, string> = {
+    critical_underpayment: "badge-critical",
+    high_underpayment_risk: "badge-high",
+    market_aligned: "badge-stable",
+    above_market: "badge-watch",
+    significantly_above_market: "badge-premium",
+  };
+  return <span className={`badge ${tone[gapClass]}`}>{PAY_GAP_LABEL[gapClass]}</span>;
+}
+
+export function ThreatBadge({ tier, score }: { tier: CompetitiveThreatTier; score?: number }) {
+  const tone: Record<CompetitiveThreatTier, string> = {
+    critical: "badge-critical",
+    high: "badge-high",
+    medium: "badge-watch",
+    low: "badge-stable",
+  };
+  return (
+    <span className={`badge ${tone[tier]}`}>
+      Threat {THREAT_LABEL[tier]}
+      {score != null ? ` · ${score}` : ""}
+    </span>
+  );
 }
 
 export function Stat({

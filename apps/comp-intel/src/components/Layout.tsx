@@ -1,22 +1,28 @@
 import type { ReactNode } from "react";
 import { useApp } from "../state";
 import type { ViewId } from "../types";
-import { PRODUCT_NAME, PRODUCT_TAGLINE } from "../lib/constants";
+import { BENCHMARK_MODE_OPTIONS, PRODUCT_NAME, PRODUCT_TAGLINE } from "../lib/constants";
+import { metricCurrencyLabel, modeExplanation, modeMethodologyLabel } from "../lib/marketBenchmark";
 import { formatCompactINR } from "../lib/money";
 
 const NAV: { id: ViewId; label: string; hint: string }[] = [
-  { id: "desk", label: "Desk", hint: "Incumbent verdict" },
-  { id: "gap", label: "Gap Lab", hint: "Where you sit" },
-  { id: "flight", label: "Flight Risk", hint: "Leave probability aid" },
-  { id: "peers", label: "Who Pulls", hint: "Poach destinations" },
-  { id: "scenarios", label: "Scenarios", hint: "Fix the gap" },
+  { id: "desk", label: "Desk", hint: "Talent / market view" },
+  { id: "gap", label: "Gap Lab", hint: "Market position ladder" },
+  { id: "flight", label: "Retention", hint: "Retention risk" },
+  { id: "peers", label: "Competitors", hint: "Who would hire them" },
+  { id: "scenarios", label: "Scenarios", hint: "Correction cost" },
   { id: "portfolio", label: "Portfolio", hint: "Team risk board" },
-  { id: "evidence", label: "Evidence", hint: "Source rows" },
+  { id: "evidence", label: "Evidence", hint: "Market evidence" },
   { id: "method", label: "Method", hint: "How to trust it" },
 ];
 
 export function TopBar() {
   const { state, dispatch } = useApp();
+  const activeMetric = state.metric === "nominal" ? "fx" : state.metric;
+  const activeOpt = BENCHMARK_MODE_OPTIONS.find((o) => o.id === activeMetric);
+  // Current salary display — always FX; mode does not change this number.
+  const currentFx = state.profile.currentPayInr;
+
   return (
     <header className="sticky top-0 z-40 border-b border-ink/8 bg-paper/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-4 px-5 py-3 lg:px-8">
@@ -24,7 +30,7 @@ export function TopBar() {
           <div className="flex items-baseline gap-2">
             <span className="font-display text-xl tracking-tight text-ink">{PRODUCT_NAME}</span>
             <span className="hidden text-[10px] uppercase tracking-[0.2em] text-copper sm:inline">
-              Comp risk
+              Mode-aware benchmarks
             </span>
           </div>
           <p className="truncate text-xs text-mute">{PRODUCT_TAGLINE}</p>
@@ -49,36 +55,48 @@ export function TopBar() {
           })}
         </nav>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            title="Edit offered pay on Desk"
-            onClick={() => dispatch({ type: "view", view: "desk" })}
-            className="hidden items-center gap-2 rounded-xl border-2 border-copper/40 bg-copper/10 px-3 py-2 text-left transition hover:border-copper hover:bg-copper/15 md:flex"
-          >
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-copper">
-              Paying
-            </span>
-            <span className="font-display text-base tabular leading-none text-ink">
-              {formatCompactINR(state.profile.currentPayInr)}
-            </span>
-          </button>
-          <div className="flex rounded-lg border border-ink/10 p-0.5 text-xs">
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              className={`rounded-md px-2 py-1 ${state.metric === "nominal" ? "bg-copper text-paper" : "text-mute"}`}
-              onClick={() => dispatch({ type: "metric", metric: "nominal" })}
+              title="Edit offered pay on Desk"
+              onClick={() => dispatch({ type: "view", view: "desk" })}
+              className="hidden items-center gap-2 rounded-xl border-2 border-copper/40 bg-copper/10 px-3 py-2 text-left transition hover:border-copper hover:bg-copper/15 md:flex"
             >
-              FX ₹
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-copper">
+                Paying
+              </span>
+              <span className="font-display text-base tabular leading-none text-ink">
+                {formatCompactINR(currentFx)}
+              </span>
             </button>
-            <button
-              type="button"
-              className={`rounded-md px-2 py-1 ${state.metric === "ppp" ? "bg-copper text-paper" : "text-mute"}`}
-              onClick={() => dispatch({ type: "metric", metric: "ppp" })}
+            <div
+              className="flex rounded-lg border border-ink/10 p-0.5 text-xs"
+              role="group"
+              aria-label="Benchmark methodology"
+              title={modeMethodologyLabel(activeMetric)}
             >
-              PPP ₹
-            </button>
+              {BENCHMARK_MODE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={activeMetric === opt.id}
+                  className={`rounded-md px-2 py-1 ${
+                    activeMetric === opt.id ? "bg-copper text-paper" : "text-mute"
+                  }`}
+                  onClick={() => dispatch({ type: "metric", metric: opt.id })}
+                  title={`${opt.title} — ${opt.explanation}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
+          <p className="hidden max-w-lg text-right text-[10px] text-mute lg:block">
+            <span className="font-medium text-ink/70">{metricCurrencyLabel(activeMetric)}</span>
+            {" · "}
+            {activeOpt?.explanation ?? modeExplanation(activeMetric)}
+          </p>
         </div>
       </div>
     </header>

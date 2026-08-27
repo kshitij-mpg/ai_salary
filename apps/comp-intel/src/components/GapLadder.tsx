@@ -1,17 +1,31 @@
 import type { GapAnalysis } from "../types";
 import { formatCompactINR } from "../lib/money";
 
-/** Horizontal market ladder with your pay marker. */
+/** Horizontal market ladder with your pay + selected-mode benchmark markers. */
 export function GapLadder({ analysis }: { analysis: GapAnalysis }) {
-  const { band, yourPay } = analysis;
+  const { band, yourPay, marketValue, benchmarkLabel } = analysis;
+  const mvKey =
+    analysis.metric === "talent"
+      ? "TMV"
+      : analysis.metric === "market"
+        ? "MBV"
+        : analysis.metric === "ppp"
+          ? "PPP"
+          : "FX";
   const points = [
     { key: "P10", v: band.p10 },
     { key: "P25", v: band.p25 },
     { key: "P50", v: band.p50 },
+    { key: mvKey, v: marketValue, mv: true },
     { key: "You", v: yourPay, you: true },
     { key: "P75", v: band.p75 },
     { key: "P90", v: band.p90 },
-  ].filter((p) => p.v != null) as { key: string; v: number; you?: boolean }[];
+  ].filter((p) => p.v != null) as {
+    key: string;
+    v: number;
+    you?: boolean;
+    mv?: boolean;
+  }[];
 
   const vals = points.map((p) => p.v);
   const lo = Math.min(...vals);
@@ -44,12 +58,14 @@ export function GapLadder({ analysis }: { analysis: GapAnalysis }) {
                 className={`h-4 w-4 rounded-full border-2 ${
                   p.you
                     ? "border-ink bg-copper shadow-[0_0_0_4px_rgba(184,107,58,0.25)]"
-                    : "border-paper bg-ink"
+                    : p.mv
+                      ? "border-ink bg-forest"
+                      : "border-paper bg-ink"
                 }`}
               />
               <div
                 className={`absolute left-1/2 top-5 w-16 -translate-x-1/2 text-center text-[10px] ${
-                  p.you ? "font-semibold text-copper" : "text-mute"
+                  p.you ? "font-semibold text-copper" : p.mv ? "font-semibold text-forest" : "text-mute"
                 }`}
               >
                 {p.key}
@@ -60,8 +76,7 @@ export function GapLadder({ analysis }: { analysis: GapAnalysis }) {
         })}
       </div>
       <p className="text-xs text-mute">
-        Copper band = P25–P75 of matching published observations. Your marker is annual pay in the
-        selected metric (FX or PPP).
+        Copper band = P25–P75. Green marker = {benchmarkLabel}. Copper marker = current pay.
       </p>
     </div>
   );

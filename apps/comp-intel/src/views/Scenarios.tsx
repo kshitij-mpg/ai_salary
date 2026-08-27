@@ -14,7 +14,9 @@ export function ScenariosView() {
     if (!analysis) return null;
     const target = analysis.yourPay * (1 + state.customRaisePct / 100);
     if (target <= analysis.yourPay) return null;
-    const next = analyzeGap(analysis.matched, target, analysis.metric, analysis.sliceLabel);
+    const next = analyzeGap(analysis.matched, target, analysis.metric, analysis.sliceLabel, {
+      matchedBandRecord: analysis.matchedBandRecord,
+    });
     return {
       target,
       delta: target - analysis.yourPay,
@@ -32,8 +34,7 @@ export function ScenariosView() {
     <div className="space-y-8">
       <SectionTitle
         title="Scenarios"
-        subtitle="What does it cost to close the gap — and how does flight risk move?"
-      />
+        subtitle={`Cost to reach ${analysis.benchmarkLabel} / P25 / P50 / P75 — and how retention risk moves when risk is supported for the active mode.`}      />
 
       <Card className="p-5">
         <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-end">

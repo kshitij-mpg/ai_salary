@@ -11,7 +11,13 @@
     "dev:static": "node scripts/ingest.mjs && node scripts/serve.mjs",
     "build": "node scripts/ingest.mjs && tsc -b && vite build",
     "preview": "vite preview",
-    "verify:ppp": "node scripts/verify-ppp.mjs"
+    "verify:ppp": "node scripts/verify-ppp.mjs",
+    "test:ppp": "node scripts/test-ppp-conversion.mjs",
+    "test:metric": "node scripts/ingest.mjs && node scripts/test-metric-mode.mjs",
+    "test:scenarios": "node scripts/ingest.mjs && node scripts/scenario-test.mjs",
+    "test:broad-filters": "node scripts/ingest.mjs && node scripts/test-broad-filters.mjs",
+    "validate:market": "node scripts/ingest.mjs && node scripts/validate-market-benchmark.mjs",
+    "validate:modes": "node scripts/ingest.mjs && node scripts/validate-mode-benchmarks.mjs"
   },
   "engines": {
     "node": ">=18"

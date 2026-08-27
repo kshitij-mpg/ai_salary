@@ -1,20 +1,36 @@
 import type { GapAnalysis } from "../types";
+import { RISK_UNSUPPORTED_MESSAGE } from "../lib/marketBenchmark";
 
 export function RiskMeter({ analysis }: { analysis: GapAnalysis }) {
+  if (!analysis.riskSupported) {
+    return (
+      <div className="rounded-lg border border-ink/10 bg-ink/5 p-4">
+        <div className="eyebrow">Retention risk score</div>
+        <p className="mt-3 text-sm leading-relaxed text-mute">{RISK_UNSUPPORTED_MESSAGE}</p>
+        <p className="mt-2 text-xs text-mute">
+          Switch to Talent Market or Market Benchmark to compute retention risk and competitive
+          threat.
+        </p>
+      </div>
+    );
+  }
+
   const score = analysis.riskScore;
   return (
     <div>
       <div className="flex items-end justify-between gap-3">
         <div>
-          <div className="eyebrow">Flight risk score</div>
+          <div className="eyebrow">Retention risk score</div>
           <div className="mt-1 font-display text-5xl tabular leading-none text-ink">{score}</div>
-          <p className="mt-1 text-xs text-mute">0 = sticky · 100 = acute leave risk</p>
+          <p className="mt-1 text-xs text-mute">
+            40% pay gap · 30% scarcity · 20% demand · 10% competitiveness
+          </p>
         </div>
         <div className="text-right text-xs text-mute">
           <div>
-            Competitive density above you:{" "}
+            Competitive threat:{" "}
             <span className="font-medium text-ink tabular">
-              {analysis.competitiveAbovePct.toFixed(0)}%
+              {analysis.competitiveThreatTier} · {analysis.competitiveThreatScore}
             </span>
           </div>
           <div>
@@ -42,8 +58,8 @@ export function RiskMeter({ analysis }: { analysis: GapAnalysis }) {
         />
       </div>
       <ul className="mt-4 space-y-2">
-        {analysis.riskReasons.map((r) => (
-          <li key={r} className="flex gap-2 text-sm text-ink/80">
+        {analysis.riskReasons.map((r, i) => (
+          <li key={`${i}-${r.slice(0, 24)}`} className="flex gap-2 text-sm text-ink/80">
             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-copper" />
             <span>{r}</span>
           </li>

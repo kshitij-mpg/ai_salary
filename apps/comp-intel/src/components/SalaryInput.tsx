@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
-import { useApp, useUpdateProfile } from "../state";
+import { useApp, useGapAnalysis, useUpdateProfile } from "../state";
 import { toAnnualInr } from "../lib/analysis";
+import { PPP_COMPARISON_DESCRIPTION } from "../lib/constants";
+import {
+  modeMethodologyLabel,
+  modePayPanelLabel,
+} from "../lib/marketBenchmark";
 import { formatCompactINR, formatINR } from "../lib/money";
 import { Chip } from "./ui";
 
@@ -24,10 +29,11 @@ function stepFor(currency: Currency, unit: UnitMode): number {
 
 /**
  * Hero-scale salary control — primary action in the incumbent filter.
- * Large input, currency chips, unit toggle, steppers, and quick presets.
+ * Current salary (FX) stays constant across modes; mode benchmark line changes.
  */
 export function SalaryInput() {
   const { state } = useApp();
+  const analysis = useGapAnalysis();
   const set = useUpdateProfile();
   const p = state.profile;
   const [unit, setUnit] = useState<UnitMode>(p.currencyInput === "INR" ? "lakh" : "absolute");
@@ -41,7 +47,11 @@ export function SalaryInput() {
     return String(p.rawAmount);
   }, [p.rawAmount, p.currencyInput, unit]);
 
-  const analyzed = toAnnualInr(p.rawAmount, p.currencyInput, p.countryCode);
+  // Current salary — always cash FX. Never changes with Talent / Market / FX / PPP toggle.
+  const currentFx = toAnnualInr(p.rawAmount, p.currencyInput, p.countryCode);
+  const mode = state.metric === "nominal" ? "fx" : state.metric;
+  const benchmarkValue = analysis?.marketValue ?? null;
+  const benchmarkLabel = modePayPanelLabel(mode);
 
   function commitRaw(next: number) {
     set({ rawAmount: Math.max(0, Math.round(next)) });
@@ -96,7 +106,7 @@ export function SalaryInput() {
           <p className="mt-1 text-xs text-mute">Edit anytime — gap & risk update live</p>
         </div>
         <div className="rounded-lg bg-ink px-2.5 py-1 text-[11px] font-semibold tabular text-paper">
-          {formatCompactINR(analyzed)}
+          {formatCompactINR(currentFx)}
         </div>
       </div>
 
@@ -207,22 +217,34 @@ export function SalaryInput() {
             ))}
       </div>
 
-      <div className="mt-3 rounded-xl border border-dashed border-ink/15 bg-ink-50/70 px-3 py-2.5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-mute">
-            Analyzed annual (INR)
-          </span>
-          <span className="font-display text-xl tabular text-ink">{formatINR(analyzed)}</span>
+      <div className="mt-3 space-y-2">
+        <div className="rounded-xl border border-ink/10 bg-paper px-3 py-2.5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-mute">
+              Current salary (FX)
+            </span>
+            <span className="font-display text-xl tabular text-ink">{formatINR(currentFx)}</span>
+          </div>
+          <p className="mt-1 text-[11px] text-mute">
+            Fixed across modes
+            {p.currencyInput === "USD" ? ` · $${p.rawAmount.toLocaleString()} × study FX` : ""}.
+          </p>
         </div>
-        {p.currencyInput !== "INR" ? (
-          <p className="mt-1 text-[11px] text-mute">
-            Converted with study FX for gap & flight-risk math.
-          </p>
-        ) : unit === "lakh" ? (
-          <p className="mt-1 text-[11px] text-mute">
-            {displayValue || "0"} Lakh = {formatCompactINR(analyzed)} cash equivalent.
-          </p>
-        ) : null}
+
+        <div className="rounded-xl border border-dashed border-copper/40 bg-copper/5 px-3 py-2.5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-copper">
+              {benchmarkLabel}
+            </span>
+            <span className="font-display text-xl tabular text-ink">
+              {benchmarkValue != null ? formatINR(benchmarkValue) : "—"}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-mute">{modeMethodologyLabel(mode)}</p>
+          {mode === "ppp" ? (
+            <p className="mt-1 text-[11px] text-mute">{PPP_COMPARISON_DESCRIPTION}</p>
+          ) : null}
+        </div>
       </div>
     </section>
   );
