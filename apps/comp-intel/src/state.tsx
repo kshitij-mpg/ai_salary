@@ -12,6 +12,7 @@ import type {
   Catalog,
   GapAnalysis,
   IncumbentProfile,
+  MarketBandRecord,
   MetricMode,
   Observation,
   PortfolioPerson,
@@ -20,14 +21,39 @@ import type {
 import {
   analyzeGap,
   defaultProfile,
+  incumbentMetricPay,
   sliceLabelFromProfile,
   toAnnualInr,
 } from "./lib/analysis";
 import { STORAGE_PORTFOLIO, STORAGE_PROFILE } from "./lib/constants";
-import { matchMarket } from "./lib/filters";
+import { matchMarket, matchMarketBand } from "./lib/filters";
+
+const STORAGE_METRIC = "payrisk-benchmark-mode-v3";
+
+function normalizeMetric(raw: string | null): MetricMode {
+  if (raw === "market" || raw === "talent" || raw === "fx" || raw === "ppp") return raw;
+  if (raw === "nominal") return "fx"; // legacy FX toggle
+  return "talent";
+}
+
+function loadMetric(): MetricMode {
+  try {
+    const raw = localStorage.getItem(STORAGE_METRIC);
+    if (raw) return normalizeMetric(raw);
+    // Migrate legacy keys once
+    const legacyV2 = localStorage.getItem("payrisk-benchmark-mode-v2");
+    if (legacyV2) return normalizeMetric(legacyV2);
+    const legacy = localStorage.getItem("payrisk-metric-v1");
+    if (legacy) return normalizeMetric(legacy);
+  } catch {
+    /* ignore */
+  }
+  return "talent";
+}
 
 export interface AppData {
   observations: Observation[];
+  marketBands: MarketBandRecord[];
   catalog: Catalog;
 }
 
@@ -56,10 +82,19 @@ type Action =
   | { type: "select"; id: string | null }
   | { type: "customRaise"; pct: number };
 
+function normalizeProfile(raw: Partial<IncumbentProfile>): IncumbentProfile {
+  const base = defaultProfile();
+  const merged = { ...base, ...raw };
+  if (merged.payType === "Base_Salary") merged.payType = "Base";
+  if (merged.metro == null) merged.metro = "";
+  merged.currentPayInr = toAnnualInr(merged.rawAmount, merged.currencyInput, merged.countryCode);
+  return merged;
+}
+
 function loadProfile(): IncumbentProfile {
   try {
     const raw = localStorage.getItem(STORAGE_PROFILE);
-    if (raw) return { ...defaultProfile(), ...JSON.parse(raw) };
+    if (raw) return normalizeProfile(JSON.parse(raw));
   } catch {
     /* ignore */
   }
@@ -69,7 +104,9 @@ function loadProfile(): IncumbentProfile {
 function loadPortfolio(): PortfolioPerson[] {
   try {
     const raw = localStorage.getItem(STORAGE_PORTFOLIO);
-    if (raw) return JSON.parse(raw) as PortfolioPerson[];
+    if (raw) {
+      return (JSON.parse(raw) as PortfolioPerson[]).map((p) => normalizeProfile(p) as PortfolioPerson);
+    }
   } catch {
     /* ignore */
   }
@@ -81,7 +118,7 @@ const initial: State = {
   error: null,
   data: null,
   view: "desk",
-  metric: "nominal",
+  metric: loadMetric(),
   profile: loadProfile(),
   portfolio: loadPortfolio(),
   selectedId: null,
@@ -99,22 +136,11 @@ function reducer(state: State, action: Action): State {
     case "metric":
       return { ...state, metric: action.metric };
     case "profile": {
-      const next = { ...state.profile, ...action.patch };
-      if (
-        action.patch.rawAmount != null ||
-        action.patch.currencyInput != null ||
-        action.patch.countryCode != null
-      ) {
-        next.currentPayInr = toAnnualInr(
-          next.rawAmount,
-          next.currencyInput,
-          next.countryCode,
-        );
-      }
+      const next = normalizeProfile({ ...state.profile, ...action.patch });
       return { ...state, profile: next };
     }
     case "setProfile":
-      return { ...state, profile: action.profile };
+      return { ...state, profile: normalizeProfile(action.profile) };
     case "portfolio":
       return { ...state, portfolio: action.portfolio };
     case "addPortfolio":
@@ -142,12 +168,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         if (!r.ok) throw new Error(`observations.json ${r.status}`);
         return r.json();
       }),
+      fetch(`${base}data/marketBands.json`).then((r) => {
+        if (!r.ok) throw new Error(`marketBands.json ${r.status}`);
+        return r.json();
+      }),
       fetch(`${base}data/catalog.json`).then((r) => {
         if (!r.ok) throw new Error(`catalog.json ${r.status}`);
         return r.json();
       }),
     ])
-      .then(([observations, catalog]) => dispatch({ type: "loaded", data: { observations, catalog } }))
+      .then(([observations, marketBands, catalog]) =>
+        dispatch({ type: "loaded", data: { observations, marketBands, catalog } }),
+      )
       .catch((e: unknown) =>
         dispatch({ type: "failed", error: e instanceof Error ? e.message : "Failed to load data" }),
       );
@@ -169,6 +201,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
   }, [state.portfolio]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_METRIC, state.metric);
+    } catch {
+      /* ignore */
+    }
+  }, [state.metric]);
+
   return <Ctx.Provider value={{ state, dispatch }}>{children}</Ctx.Provider>;
 }
 
@@ -181,23 +221,40 @@ export function useApp() {
 export function useMarketMatch() {
   const { state } = useApp();
   return useMemo(() => {
-    if (!state.data) return { matched: [] as Observation[], relaxNotes: [] as string[] };
-    return matchMarket(state.data.observations, state.profile);
+    if (!state.data) {
+      return {
+        matched: [] as Observation[],
+        relaxNotes: [] as string[],
+        matchedBand: null as MarketBandRecord | null,
+        bandRelaxNotes: [] as string[],
+      };
+    }
+    const filingMatch = matchMarket(state.data.observations, state.profile);
+    const bandMatch = matchMarketBand(state.data.marketBands, state.profile);
+    return {
+      matched: filingMatch.matched,
+      relaxNotes: filingMatch.relaxNotes,
+      matchedBand: bandMatch.band,
+      bandRelaxNotes: bandMatch.relaxNotes,
+    };
   }, [state.data, state.profile]);
 }
 
 export function useGapAnalysis(): GapAnalysis | null {
   const { state } = useApp();
-  const { matched } = useMarketMatch();
+  const { matched, matchedBand } = useMarketMatch();
   return useMemo(() => {
-    if (!matched.length || !state.profile.currentPayInr) return null;
+    const yourPay = incumbentMetricPay(state.profile, state.metric);
+    if (!yourPay) return null;
+    if (!matched.length && !matchedBand) return null;
     return analyzeGap(
       matched,
-      state.profile.currentPayInr,
+      yourPay,
       state.metric,
       sliceLabelFromProfile(state.profile),
+      { matchedBandRecord: matchedBand },
     );
-  }, [matched, state.profile, state.metric]);
+  }, [matched, matchedBand, state.profile, state.metric]);
 }
 
 export function useUpdateProfile() {

@@ -24,8 +24,16 @@ export function GapLab() {
     <div className="space-y-8">
       <SectionTitle
         title="Gap Lab"
-        subtitle={`Where ${state.profile.label} sits against published observations — not an employee percentile table.`}
+        subtitle={`Where ${state.profile.label} sits vs matched market band (P10–P90) and ${analysis.benchmarkLabel}. Mode: ${analysis.metric === "ppp" ? "PPP" : analysis.metric === "market" ? "Market Benchmark" : analysis.metric === "talent" ? "Talent Market" : "FX"}.`}
       />
+
+      {analysis.bandGeographyLevel ? (
+        <Card className="border-copper/20 bg-copper/5 p-3 text-xs text-ink/85">
+          Matched <strong>{analysis.bandGeographyLevel}</strong> market band · n=
+          {analysis.band.n.toLocaleString()} · {analysis.compensationDefinition ?? "LCA offered base wage"}
+          {analysis.bandSource === "computed" ? " (computed from filings — no pre-aggregated band)" : ""}
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-5">
         {(
@@ -38,7 +46,10 @@ export function GapLab() {
           ] as const
         ).map(([k, v]) => (
           <Card key={k} className="p-4">
-            <Stat label={k} value={formatCompactINR(v)} />
+            <Stat
+              label={`${k}${analysis.metric === "ppp" ? " · PPP" : ""}`}
+              value={formatCompactINR(v)}
+            />
           </Card>
         ))}
       </div>
@@ -60,8 +71,8 @@ export function GapLab() {
         </Card>
 
         <Card className="p-5">
-          <h3 className="font-display text-2xl">Under / over by source</h3>
-          <p className="mt-1 text-xs text-mute">Your pay vs each source’s observation median.</p>
+          <h3 className="font-display text-2xl">Under / over by employer</h3>
+          <p className="mt-1 text-xs text-mute">Your pay vs median LCA filing by employer group.</p>
           <div className="mt-4 max-h-80 space-y-2 overflow-auto pr-1">
             {sources.map((s) => {
               const med = s.medianPublished;
@@ -125,8 +136,17 @@ export function GapLab() {
           </div>
         </dl>
         <p className="mt-4 text-xs text-mute">
-          Values use {analysis.metric === "ppp" ? "PPP-corrected INR" : "nominal INR (FX)"}. Source
-          medians use published midpoints when present, else observation set median.
+          Values use{" "}
+          {analysis.metric === "ppp"
+            ? "PPP-adjusted INR for market percentiles; current salary stays FX; PPP benchmark = USD × PPP factor"
+            : analysis.metric === "market"
+              ? "Market Benchmark FX INR (P50 × Geo × CCI)"
+              : analysis.metric === "talent"
+                ? "Talent Market FX INR (Market Benchmark × Demand × Scarcity)"
+                : "FX benchmark = current USD × FX (cash conversion only)"}.{" "}
+          Selected benchmark ({analysis.benchmarkLabel}):{" "}
+          {analysis.marketValue != null ? formatINR(analysis.marketValue) : "—"}. Source medians use
+          published midpoints when present, else observation set median.
         </p>
       </Card>
     </div>

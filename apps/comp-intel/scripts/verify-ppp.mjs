@@ -1,10 +1,11 @@
 /**
- * Assert India PPP is job-country correct on the GCC Nexus AI Engineer entry row.
- * Reads generated public/data/observations.json.
+ * Verify PPP correction fields on ingested observations.
+ * Run after `npm run ingest`.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { convertUsdToPppInr, FX_USD_INR, salaryPppInrCorrected } from "./lib/metric-pay.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const jsonPath = path.resolve(__dirname, "../public/data/observations.json");
@@ -15,35 +16,64 @@ if (!fs.existsSync(jsonPath)) {
 }
 
 const rows = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
-const gcc = rows.find(
-  (o) =>
-    o.pppSuspect &&
-    o.sourceName.includes("GCC Nexus") &&
-    o.roleName === "AI Engineer" &&
-    o.experienceLevel.startsWith("Entry") &&
-    o.city === "National",
-);
+let failed = 0;
 
-if (!gcc) {
-  console.error("GCC Nexus AI Engineer entry row not found.");
-  process.exit(1);
+function assert(name, cond, detail = "") {
+  if (!cond) {
+    console.error(`FAIL: ${name}${detail ? ` — ${detail}` : ""}`);
+    failed += 1;
+  } else {
+    console.log(`OK: ${name}`);
+  }
 }
 
-const okSalary = gcc.salaryInr === 1307391;
-const okSourcePpp = gcc.salaryPppInr === 1307391;
-const okCorrected = gcc.salaryPppInrCorrected === 1307391;
-const indiaUsd = rows.filter((o) => o.pppSuspect);
-const indiaUsdOk = indiaUsd.every(
-  (o) => o.salaryPppInrCorrected === o.salaryInr && o.salaryPppInr === o.salaryInr,
-);
+assert("observations loaded", rows.length > 0, `n=${rows.length}`);
 
-console.log("GCC Nexus AI Engineer · Entry · National");
-console.log(`  Salary_INR               ${gcc.salaryInr}  ${okSalary ? "OK" : "FAIL"}`);
-console.log(`  Salary_PPP_INR (source)  ${gcc.salaryPppInr}  ${okSourcePpp ? "OK" : "FAIL"}`);
-console.log(`  Salary_PPP_INR_Corrected ${gcc.salaryPppInrCorrected}  ${okCorrected ? "OK" : "FAIL"}`);
-console.log(
-  `  IN+USD rows where source PPP === corrected === Salary_INR: ${indiaUsdOk} (n=${indiaUsd.length})`,
+const us = rows.find(
+  (o) =>
+    o.countryCode === "US" &&
+    o.salaryUsd != null &&
+    o.salaryUsd > 0 &&
+    o.salaryPppInrCorrected != null,
 );
+assert("US filing sample exists", !!us);
+if (us) {
+  const expected = convertUsdToPppInr(us.salaryUsd);
+  assert(
+    "US PPP-corrected ≈ USD × 23",
+    Math.abs(us.salaryPppInrCorrected - expected) < 1,
+    `got ${us.salaryPppInrCorrected} expect ${expected}`,
+  );
+  assert(
+    "US cash FX ≠ PPP absolute",
+    us.salaryInr !== us.salaryPppInrCorrected,
+    `both ${us.salaryInr}`,
+  );
+  assert(
+    "Helper matches ingest for US",
+    Math.abs(salaryPppInrCorrected(us.salaryInr, "US") - us.salaryPppInrCorrected) < 1,
+  );
+}
 
-if (!okSalary || !okSourcePpp || !okCorrected || !indiaUsdOk) process.exit(1);
-console.log("PPP verified (bundled CSV + ingest correction).");
+const india = rows.filter((o) => o.countryCode === "IN");
+if (india.length) {
+  const identityOk = india.every(
+    (o) =>
+      o.salaryPppInrCorrected == null ||
+      Math.abs(o.salaryPppInrCorrected - o.salaryInr) < 0.01,
+  );
+  assert(`India PPP identity (n=${india.length})`, identityOk);
+} else {
+  console.log("OK: no India rows in current LCA slice (US-only dataset)");
+}
+
+const nullPpp = rows.filter((o) => o.salaryPppInrCorrected == null).length;
+assert("All filings have PPP-corrected values", nullPpp === 0, `null=${nullPpp}`);
+
+assert("Study FX constant", FX_USD_INR === 95.43);
+
+if (failed) {
+  console.error(`\n${failed} assertion(s) failed`);
+  process.exit(1);
+}
+console.log("\nPPP verified against ingested observations.");

@@ -1,7 +1,16 @@
-export type CountryCode = "US" | "IN" | "GB" | "AE" | "AU" | "NZ" | "DE" | string;
-export type PayType = "Base_Salary" | "Total_Compensation" | "Mixed" | string;
-export type Confidence = "HIGH" | "MEDIUM" | "LOW" | string;
-export type MetricMode = "nominal" | "ppp";
+export type CountryCode = "US" | "IN" | string;
+export type PayType = "Base" | "Base_Salary" | "Total_Compensation" | string;
+
+/**
+ * Benchmark methodology switcher — each mode has a distinct calculation path.
+ * - talent (default): Talent Market Value = Market Benchmark × Role Demand × Scarcity
+ * - market: Market Benchmark Value = P50 × Geo × CCI
+ * - fx: pure USD × FX_USD_INR (no market / scarcity / demand)
+ * - ppp: pure USD × PPP_Conversion_Factor (purchasing power only)
+ * Legacy aliases: "nominal" → treated as fx in loaders.
+ */
+export type MetricMode = "market" | "talent" | "fx" | "ppp" | "nominal";
+
 export type ViewId =
   | "desk"
   | "gap"
@@ -14,6 +23,31 @@ export type ViewId =
 
 export type RiskTier = "critical" | "high" | "watch" | "stable" | "premium";
 export type GapVerdict = "underpaid" | "at_market" | "overpaid";
+export type BandSource = "market_band" | "computed";
+
+export type MarketPosition =
+  | "significantly_underpaid"
+  | "underpaid"
+  | "market_competitive"
+  | "highly_competitive"
+  | "market_leading";
+
+export type PayGapClass =
+  | "critical_underpayment"
+  | "high_underpayment_risk"
+  | "market_aligned"
+  | "above_market"
+  | "significantly_above_market";
+
+export type CompetitiveThreatTier = "low" | "medium" | "high" | "critical";
+
+export interface CompetitorCompany {
+  employerKey: string;
+  employerLabel: string;
+  n: number;
+  medianPay: number;
+  sampleRoles: string[];
+}
 
 export interface Observation {
   id: string;
@@ -23,41 +57,86 @@ export interface Observation {
   countryCode: CountryCode;
   stateRegion: string;
   city: string;
+  metro: string;
+  geographyLevel: string;
+  geographyName: string;
   roleName: string;
   originalRoleTitle: string;
   roleFamily: string;
   experienceLevel: string;
   careerLevel: string;
-  industry: string;
   payType: PayType;
-  baseMin: number | null;
-  baseMedian: number | null;
-  baseMax: number | null;
-  bonus: number | null;
-  equity: number | null;
-  totalCompensation: number | null;
+  compensationDefinition: string;
   salaryInr: number;
   salaryPppInr: number | null;
   salaryPppInrCorrected: number | null;
+  salaryUsd: number | null;
   pppSuspect: boolean;
-  currency: string;
-  currencyOriginal: string;
-  fxRate: number | null;
-  fxRateMeaning: string;
+  employerGroup: string;
+  employerName: string;
   fxUsdInr: number | null;
   fxConversionDate: string;
   sourceName: string;
   sourceType: string;
-  sourceAccessType: string;
   sourceUrl: string;
-  publicationDate: string;
   retrievalDate: string;
   sampleSize: number | null;
-  sampleSizeNote: string;
-  confidenceScore: Confidence;
-  verificationStatus: string;
+  qualityFlag: string;
+  dataQualityScore: number | null;
   notes: string;
   isEmployerFiling: boolean;
+}
+
+export interface MarketBandRecord {
+  id: string;
+  roleFamily: string;
+  roleFamilyKey: string;
+  countryCode: string;
+  countryName: string;
+  geographyLevel: string;
+  geographyName: string;
+  state: string;
+  city: string;
+  metro: string;
+  experienceLevel: string;
+  experienceBandKey: string;
+  payType: string;
+  compensationDefinition: string;
+  p10Usd: number | null;
+  p25Usd: number | null;
+  p50Usd: number | null;
+  p75Usd: number | null;
+  p90Usd: number | null;
+  minUsd: number | null;
+  maxUsd: number | null;
+  meanUsd: number | null;
+  p10Inr: number | null;
+  p25Inr: number | null;
+  p50Inr: number | null;
+  p75Inr: number | null;
+  p90Inr: number | null;
+  minInr: number | null;
+  maxInr: number | null;
+  meanInr: number | null;
+  p10PppInr: number | null;
+  p25PppInr: number | null;
+  p50PppInr: number | null;
+  p75PppInr: number | null;
+  p90PppInr: number | null;
+  minPppInr: number | null;
+  maxPppInr: number | null;
+  meanPppInr: number | null;
+  sampleSize: number;
+  geographicPremiumIndex: number | null;
+  leadershipPremiumIndex: number | null;
+  roleDemandIndex: number | null;
+  talentScarcityIndicator: string;
+  compensationCompetitivenessIndex: number | null;
+  sourceName: string;
+  collectionDate: string;
+  fxUsdInr: number;
+  fxConversionDate: string;
+  notes: string;
 }
 
 export interface NamedCount {
@@ -66,21 +145,27 @@ export interface NamedCount {
 }
 
 export interface Catalog {
-  generatedFrom: string;
+  generatedFrom: string[];
+  standardizedDuplicate?: string;
   rowCount: number;
-  pppSuspectCount: number;
-  fxUsdInr: number;
-  fxConversionDate: string;
-  retrievalDate: string;
+  bandCount: number;
   grain: string;
+  grainNotes: string;
   countries: { code: string; name: string; n: number }[];
   roleFamilies: NamedCount[];
   roleNames: NamedCount[];
   experienceLevels: NamedCount[];
   payTypes: NamedCount[];
-  sources: { name: string; n: number; type: string }[];
   cities: { countryCode: string; name: string; n: number }[];
-  confidence: NamedCount[];
+  metros: { countryCode: string; name: string; n: number }[];
+  states: { countryCode: string; name: string; n: number }[];
+  employerGroups: NamedCount[];
+  fxUsdInr: number;
+  pppFactor: number;
+  fxConversionDate: string;
+  collectionDate: string;
+  compensationDefinition: string;
+  disclaimer: string;
   countryFxToInr: Record<string, number>;
   worldBankPpp: Record<string, number>;
 }
@@ -93,6 +178,7 @@ export interface IncumbentProfile {
   roleName: string;
   experienceLevel: string;
   city: string;
+  metro: string;
   payType: PayType;
   /** Annual pay in INR (cash / nominal). */
   currentPayInr: number;
@@ -114,6 +200,7 @@ export interface Filters {
   payTypes: string[];
   sources: string[];
   cities: string[];
+  metros: string[];
   allowMixPayTypes: boolean;
 }
 
@@ -131,6 +218,16 @@ export interface MarketBand {
   directional: boolean;
 }
 
+export interface EmployerPull {
+  employerKey: string;
+  employerLabel: string;
+  n: number;
+  medianPay: number;
+  premiumVsYou: number;
+  premiumPct: number;
+  sampleRoles: string[];
+}
+
 export interface SourcePull {
   sourceName: string;
   sourceType: string;
@@ -145,7 +242,7 @@ export interface SourcePull {
 export interface DestinationPull {
   key: string;
   label: string;
-  kind: "city" | "country" | "industry" | "source";
+  kind: "city" | "country" | "metro" | "employer" | "source";
   n: number;
   medianPay: number;
   premiumVsYou: number;
@@ -156,13 +253,53 @@ export interface GapAnalysis {
   yourPay: number;
   metric: MetricMode;
   band: MarketBand;
+  bandSource: BandSource;
+  matchedBandRecord: MarketBandRecord | null;
+  bandGeographyLevel: string | null;
+  compensationDefinition: string | null;
+  compensationCompetitivenessIndex: number | null;
+  geographicPremiumIndex: number | null;
+  leadershipPremiumIndex: number | null;
+  roleDemandIndex: number | null;
+  talentScarcityIndicator: string | null;
+  /**
+   * Selected benchmark for the active mode (drives pay gap / adjustment / KPIs).
+   * Talent → Talent Market Value; Market → Market Benchmark;
+   * FX → current salary × FX; PPP → current salary × PPP factor.
+   * Distinct from yourPay (current salary), which never changes with mode.
+   */
+  marketValue: number | null;
+  /** Always P50 × Geo × CCI (FX currency of the band), for cross-mode comparison. */
+  marketBenchmarkValue: number | null;
+  /** Always Talent Market Value (FX currency), for cross-mode comparison. */
+  talentMarketValue: number | null;
+  /** Human label for the selected benchmark in the active mode. */
+  benchmarkLabel: string;
+  marketMedian: number | null;
+  marketPosition: MarketPosition;
+  payGapPct: number | null;
+  payGapClass: PayGapClass;
+  expectedOfferLow: number | null;
+  expectedOfferHigh: number | null;
+  /** Competitor offer range only in Talent Market View. */
+  offerRangeSupported: boolean;
+  topCompetitors: CompetitorCompany[];
+  competitiveThreatTier: CompetitiveThreatTier;
+  competitiveThreatScore: number;
+  competitiveThreatReasons: string[];
+  recommendedAdjustment: number;
   /** 0–100 approximate percentile among observations. */
   percentileRank: number | null;
   gapVsP50: number | null;
   gapVsP50Pct: number | null;
   gapVsP25: number | null;
   gapVsP75: number | null;
+  /** Gap vs selected mode benchmark. */
+  gapVsBenchmark: number | null;
+  gapVsBenchmarkPct: number | null;
   verdict: GapVerdict;
+  /** False in FX/PPP — risk is benchmark-based only. */
+  riskSupported: boolean;
   riskTier: RiskTier;
   riskScore: number;
   riskReasons: string[];
@@ -195,18 +332,5 @@ export interface SourceGroup {
   maxPublished: number | null;
   rows: Observation[];
   isEmployerFiling: boolean;
-  kind: "published_range" | "observation_set";
-}
-
-export interface SourceGroup {
-  sourceName: string;
-  sourceType: string;
-  n: number;
-  values: number[];
-  minPublished: number | null;
-  medianPublished: number | null;
-  maxPublished: number | null;
-  rows: Observation[];
-  isEmployerFiling: boolean;
-  kind: "published_range" | "observation_set";
+  kind: "published_range" | "observation_set" | "employer_filing";
 }

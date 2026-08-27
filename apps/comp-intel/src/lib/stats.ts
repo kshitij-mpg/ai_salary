@@ -4,6 +4,7 @@ import { isPresent } from "./money";
 
 export function metricValue(o: Observation, metric: MetricMode): number | null {
   if (metric === "ppp") return o.salaryPppInrCorrected;
+  // market, talent, fx, nominal → cash FX INR
   return o.salaryInr;
 }
 
@@ -49,23 +50,21 @@ export function directional(n: number): boolean {
 }
 
 export function groupSources(rows: Observation[], metric: MetricMode): SourceGroup[] {
-  const grouped = groupBy(rows, (o) => o.sourceName);
+  const grouped = groupBy(rows, (o) => o.employerGroup || o.employerName || o.sourceName);
   const out: SourceGroup[] = [];
   for (const [sourceName, list] of grouped) {
     const values = list.map((o) => metricValue(o, metric)).filter(isPresent);
-    const mins = list.map((o) => o.baseMin).filter(isPresent);
-    const meds = list.map((o) => o.baseMedian).filter(isPresent);
-    const maxs = list.map((o) => o.baseMax).filter(isPresent);
-    const kind: SourceGroup["kind"] =
-      list.length === 1 && (mins.length || maxs.length) ? "published_range" : "observation_set";
+    const kind: SourceGroup["kind"] = list.every((o) => o.isEmployerFiling)
+      ? "employer_filing"
+      : "observation_set";
     out.push({
       sourceName,
       sourceType: list[0]?.sourceType ?? "",
       n: list.length,
       values,
-      minPublished: mins.length ? Math.min(...mins) : null,
-      medianPublished: meds.length ? median(meds) : median(values),
-      maxPublished: maxs.length ? Math.max(...maxs) : null,
+      minPublished: values.length ? Math.min(...values) : null,
+      medianPublished: median(values),
+      maxPublished: values.length ? Math.max(...values) : null,
       rows: list,
       isEmployerFiling: list.some((o) => o.isEmployerFiling),
       kind,
