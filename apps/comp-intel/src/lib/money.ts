@@ -1,22 +1,21 @@
-/** Indian grouping and compact INR display. Never coerce blank to zero. */
+/** Indian grouping (en-IN) and compact INR display. Never coerce blank to zero. */
+
+const INR_FULL = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0,
+  minimumFractionDigits: 0,
+});
+
+const INR_DEC = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 2,
+});
 
 export function isPresent(n: number | null | undefined): n is number {
   return n != null && Number.isFinite(n);
-}
-
-function groupIndianInt(intStr: string): string {
-  const neg = intStr.startsWith("-");
-  const digits = neg ? intStr.slice(1) : intStr;
-  if (digits.length <= 3) return (neg ? "-" : "") + digits;
-  const last3 = digits.slice(-3);
-  let rest = digits.slice(0, -3);
-  const parts: string[] = [];
-  while (rest.length > 2) {
-    parts.unshift(rest.slice(-2));
-    rest = rest.slice(0, -2);
-  }
-  if (rest) parts.unshift(rest);
-  return (neg ? "-" : "") + parts.join(",") + "," + last3;
 }
 
 function trimZeros(s: string): string {
@@ -26,20 +25,17 @@ function trimZeros(s: string): string {
 export function formatINR(n: number | null | undefined, opts?: { decimals?: number }): string {
   if (!isPresent(n)) return "—";
   const decimals = opts?.decimals ?? (Math.abs(n) >= 1 && Number.isInteger(n) ? 0 : 2);
-  const abs = Math.abs(n);
-  const [intPart, decPart] = abs.toFixed(decimals).split(".");
-  const grouped = groupIndianInt(intPart);
-  const sign = n < 0 ? "−" : "";
-  if (decimals === 0 || !decPart || /^0+$/.test(decPart)) return `${sign}₹${grouped}`;
-  return `${sign}₹${grouped}.${decPart}`;
+  if (decimals === 0) return INR_FULL.format(Math.round(n));
+  return INR_DEC.format(n);
 }
 
+/** Executive compact form: ₹43.50 Lakh · ₹1.25 Cr (en-IN digit grouping on smaller amounts). */
 export function formatCompactINR(n: number | null | undefined): string {
   if (!isPresent(n)) return "—";
   const sign = n < 0 ? "−" : "";
   const abs = Math.abs(n);
   if (abs >= 1e7) return `${sign}₹${trimZeros((abs / 1e7).toFixed(2))} Cr`;
-  if (abs >= 1e5) return `${sign}₹${trimZeros((abs / 1e5).toFixed(1))} L`;
+  if (abs >= 1e5) return `${sign}₹${trimZeros((abs / 1e5).toFixed(2))} Lakh`;
   return formatINR(n);
 }
 

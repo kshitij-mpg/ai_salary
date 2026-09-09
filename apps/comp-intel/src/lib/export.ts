@@ -1,6 +1,11 @@
 import type { GapAnalysis, Observation, PortfolioPerson } from "../types";
 import { formatCompactINR, formatINR } from "./money";
 import { MARKET_POSITION_LABEL, PAY_GAP_LABEL, THREAT_LABEL } from "./marketBenchmark";
+import {
+  CONFIDENCE_LABEL,
+  confidenceFromSampleSize,
+  evidenceBasedOnLabel,
+} from "./evidenceConfidence";
 
 function csvCell(v: string | number | boolean | null | undefined): string {
   if (v == null || v === "") return "";
@@ -135,23 +140,27 @@ export function briefingText(analysis: GapAnalysis, label: string): string {
       : `${analysis.benchmarkLabel} unavailable for this slice.`;
   const competitors = analysis.topCompetitors
     .slice(0, 5)
-    .map((c) => c.employerLabel)
-    .join(", ");
+    .map((c) => {
+      const conf = CONFIDENCE_LABEL[confidenceFromSampleSize(c.n)];
+      return `${c.employerLabel} (${formatCompactINR(c.medianPay)}; ${evidenceBasedOnLabel(c.n)}; Confidence: ${conf})`;
+    })
+    .join("; ");
   const riskLine = analysis.riskSupported
     ? `Retention risk: ${analysis.riskTier} (${analysis.riskScore}/100)`
-    : "Retention risk: not supported in FX/PPP mode";
+    : "Retention risk: Talent Market View only";
   const threatLine = analysis.riskSupported
     ? `Competitive threat: ${THREAT_LABEL[analysis.competitiveThreatTier]} (${analysis.competitiveThreatScore}/100)`
-    : "Competitive threat: not supported in FX/PPP mode";
+    : "Competitive threat: Talent Market View only";
   const offerLine = analysis.offerRangeSupported
-    ? `Expected offer (P75–P90 × demand × scarcity): ${formatCompactINR(analysis.expectedOfferLow)} – ${formatCompactINR(analysis.expectedOfferHigh)}`
+    ? `Expected offer (P75–P90): ${formatCompactINR(analysis.expectedOfferLow)} – ${formatCompactINR(analysis.expectedOfferHigh)}`
     : "Expected offer: available only in Talent Market View";
   return [
     `PayRisk brief — ${label}`,
     `Slice: ${analysis.sliceLabel}`,
     `Methodology: ${modeNote}`,
     `Current pay: ${formatINR(analysis.yourPay)}`,
-    `Market median (P50): ${formatINR(analysis.marketMedian)}`,
+    `Market Benchmark (P50): ${formatINR(analysis.marketBenchmarkValue ?? analysis.marketMedian)}`,
+    `Talent Market Value: ${formatINR(analysis.talentMarketValue)}`,
     `${analysis.benchmarkLabel}: ${formatINR(analysis.marketValue)}`,
     `P25–P90: ${formatCompactINR(analysis.band.p25)} – ${formatCompactINR(analysis.band.p90)}`,
     `Market position: ${MARKET_POSITION_LABEL[analysis.marketPosition]}`,

@@ -2,11 +2,13 @@ import { useMemo } from "react";
 import { useApp, useGapAnalysis } from "../state";
 import { Card, EmptyState, RiskBadge, SectionTitle, Field } from "../components/ui";
 import { analyzeGap, buildScenarios } from "../lib/analysis";
+import { hubOption } from "../lib/metros";
 import { formatCompactINR, formatINR } from "../lib/money";
 
 export function ScenariosView() {
   const { state, dispatch } = useApp();
   const analysis = useGapAnalysis();
+  const hub = hubOption(state.hub);
 
   const scenarios = useMemo(() => (analysis ? buildScenarios(analysis) : []), [analysis]);
 
@@ -16,13 +18,15 @@ export function ScenariosView() {
     if (target <= analysis.yourPay) return null;
     const next = analyzeGap(analysis.matched, target, analysis.metric, analysis.sliceLabel, {
       matchedBandRecord: analysis.matchedBandRecord,
+      hubId: state.hub,
+      targetPercentile: state.targetPercentile,
     });
     return {
       target,
       delta: target - analysis.yourPay,
       next,
     };
-  }, [analysis, state.customRaisePct]);
+  }, [analysis, state.customRaisePct, state.hub, state.targetPercentile]);
 
   if (!analysis) {
     return (
@@ -34,7 +38,8 @@ export function ScenariosView() {
     <div className="space-y-8">
       <SectionTitle
         title="Scenarios"
-        subtitle={`Cost to reach ${analysis.benchmarkLabel} / P25 / P50 / P75 — and how retention risk moves when risk is supported for the active mode.`}      />
+        subtitle={`Cost to reach ${analysis.benchmarkLabel} / P25 / P50 / P75 for ${hub.shortLabel} (index ${hub.multiplier.toFixed(2)}) — and how retention risk moves when risk is supported for the active mode.`}
+      />
 
       <Card className="p-5">
         <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-end">
@@ -108,8 +113,9 @@ export function ScenariosView() {
       </div>
 
       <Card className="p-5 text-sm text-mute leading-relaxed">
-        Reminder: costs are annual cash/TC increments in the selected metric. Equity, bonus structure,
-        and benefits are out of scope unless captured in Total Compensation observations.
+        Reminder: costs are annual cash/TC increments in the selected metric for the active Indian hub.
+        Equity, bonus structure, and benefits are out of scope unless captured in Total Compensation
+        observations.
       </Card>
     </div>
   );

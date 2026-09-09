@@ -1,11 +1,8 @@
 import { useMemo, useState } from "react";
 import { useApp, useGapAnalysis, useUpdateProfile } from "../state";
 import { toAnnualInr } from "../lib/analysis";
-import { PPP_COMPARISON_DESCRIPTION } from "../lib/constants";
-import {
-  modeMethodologyLabel,
-  modePayPanelLabel,
-} from "../lib/marketBenchmark";
+import { STRATEGIC_TARGET_OPTIONS } from "../lib/constants";
+import { hubOption } from "../lib/metros";
 import { formatCompactINR, formatINR } from "../lib/money";
 import { Chip } from "./ui";
 
@@ -29,7 +26,7 @@ function stepFor(currency: Currency, unit: UnitMode): number {
 
 /**
  * Hero-scale salary control — primary action in the incumbent filter.
- * Current salary (FX) stays constant across modes; mode benchmark line changes.
+ * Current salary stays constant across hubs; strategic target line changes.
  */
 export function SalaryInput() {
   const { state } = useApp();
@@ -37,6 +34,10 @@ export function SalaryInput() {
   const set = useUpdateProfile();
   const p = state.profile;
   const [unit, setUnit] = useState<UnitMode>(p.currencyInput === "INR" ? "lakh" : "absolute");
+  const hub = hubOption(state.hub);
+  const targetOpt =
+    STRATEGIC_TARGET_OPTIONS.find((o) => o.id === state.targetPercentile) ??
+    STRATEGIC_TARGET_OPTIONS[1]!;
 
   const displayValue = useMemo(() => {
     if (!p.rawAmount) return "";
@@ -47,11 +48,8 @@ export function SalaryInput() {
     return String(p.rawAmount);
   }, [p.rawAmount, p.currencyInput, unit]);
 
-  // Current salary — always cash FX. Never changes with Talent / Market / FX / PPP toggle.
   const currentFx = toAnnualInr(p.rawAmount, p.currencyInput, p.countryCode);
-  const mode = state.metric === "nominal" ? "fx" : state.metric;
   const benchmarkValue = analysis?.marketValue ?? null;
-  const benchmarkLabel = modePayPanelLabel(mode);
 
   function commitRaw(next: number) {
     set({ rawAmount: Math.max(0, Math.round(next)) });
@@ -167,7 +165,7 @@ export function SalaryInput() {
             className="salary-input w-full rounded-xl border-2 border-ink/15 bg-paper py-4 pl-10 pr-16 font-display text-3xl tabular leading-none text-ink outline-none transition focus:border-copper focus:ring-4 focus:ring-copper/20"
             value={displayValue}
             onChange={(e) => onTyped(e.target.value)}
-            placeholder={unit === "lakh" && p.currencyInput === "INR" ? "18" : "1800000"}
+            placeholder={unit === "lakh" && p.currencyInput === "INR" ? "12" : "1200000"}
             aria-label="Annual pay amount"
           />
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold uppercase tracking-wider text-mute">
@@ -221,12 +219,12 @@ export function SalaryInput() {
         <div className="rounded-xl border border-ink/10 bg-paper px-3 py-2.5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-mute">
-              Current salary (FX)
+              Current salary (INR)
             </span>
             <span className="font-display text-xl tabular text-ink">{formatINR(currentFx)}</span>
           </div>
           <p className="mt-1 text-[11px] text-mute">
-            Fixed across modes
+            Fixed across hubs and strategic targets
             {p.currencyInput === "USD" ? ` · $${p.rawAmount.toLocaleString()} × study FX` : ""}.
           </p>
         </div>
@@ -234,16 +232,15 @@ export function SalaryInput() {
         <div className="rounded-xl border border-dashed border-copper/40 bg-copper/5 px-3 py-2.5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-copper">
-              {benchmarkLabel}
+              {hub.shortLabel} · {targetOpt.title}
             </span>
             <span className="font-display text-xl tabular text-ink">
               {benchmarkValue != null ? formatINR(benchmarkValue) : "—"}
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-mute">{modeMethodologyLabel(mode)}</p>
-          {mode === "ppp" ? (
-            <p className="mt-1 text-[11px] text-mute">{PPP_COMPARISON_DESCRIPTION}</p>
-          ) : null}
+          <p className="mt-1 text-[11px] text-mute">
+            Strategic target from metros.{state.hub}.{state.targetPercentile}
+          </p>
         </div>
       </div>
     </section>

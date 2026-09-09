@@ -11,11 +11,12 @@ import {
 import type {
   Catalog,
   GapAnalysis,
+  HubId,
   IncumbentProfile,
   MarketBandRecord,
-  MetricMode,
   Observation,
   PortfolioPerson,
+  TargetPercentile,
   ViewId,
 } from "./types";
 import {
@@ -25,30 +26,75 @@ import {
   sliceLabelFromProfile,
   toAnnualInr,
 } from "./lib/analysis";
-import { STORAGE_PORTFOLIO, STORAGE_PROFILE } from "./lib/constants";
+import { STORAGE_PORTFOLIO, STORAGE_PROFILE, STORAGE_TARGET } from "./lib/constants";
 import { matchMarket, matchMarketBand } from "./lib/filters";
+import { DEFAULT_HUB, isHubId, STORAGE_HUB } from "./lib/metros";
 
-const STORAGE_METRIC = "payrisk-benchmark-mode-v3";
-
-function normalizeMetric(raw: string | null): MetricMode {
-  if (raw === "market" || raw === "talent" || raw === "fx" || raw === "ppp") return raw;
-  if (raw === "nominal") return "fx"; // legacy FX toggle
-  return "talent";
+/** Expand compact ingest filings into the full Observation shape used by views. */
+function hydrateObservation(raw: Partial<Observation> & { id: string; salaryInr: number }): Observation {
+  const roleName = raw.roleName ?? "";
+  const experienceLevel = raw.experienceLevel ?? "";
+  const employer = raw.employerName ?? raw.employerGroup ?? "";
+  return {
+    id: raw.id,
+    analyticGrain: raw.analyticGrain ?? "Filing",
+    payPeriod: raw.payPeriod ?? "Annual",
+    country: raw.country ?? "India",
+    countryCode: raw.countryCode ?? "IN",
+    stateRegion: raw.stateRegion ?? "",
+    city: raw.city ?? "",
+    metro: raw.metro ?? "Multi-Metro Calibrated",
+    geographyLevel: raw.geographyLevel ?? "Multi-Metro",
+    geographyName: raw.geographyName ?? "India · Multi-Metro Calibrated",
+    roleName,
+    originalRoleTitle: raw.originalRoleTitle ?? roleName,
+    roleFamily: raw.roleFamily ?? "Other AI/Tech",
+    experienceLevel,
+    careerLevel: raw.careerLevel ?? experienceLevel,
+    payType: raw.payType ?? "Base",
+    compensationDefinition: raw.compensationDefinition ?? "India_Tech_Benchmark_INR",
+    currency: raw.currency ?? "INR",
+    salaryInr: raw.salaryInr,
+    salaryPppInr: raw.salaryPppInr ?? null,
+    salaryPppInrCorrected: raw.salaryPppInrCorrected ?? null,
+    salaryUsd: raw.salaryUsd ?? null,
+    pppSuspect: raw.pppSuspect ?? false,
+    employerGroup: raw.employerGroup || employer,
+    employerName: employer,
+    caseNumber: raw.caseNumber,
+    fxUsdInr: raw.fxUsdInr ?? null,
+    fxConversionDate: raw.fxConversionDate ?? "",
+    sourceName: raw.sourceName ?? "India Tech Roles Benchmark",
+    sourceType: raw.sourceType ?? "India multi-metro filing",
+    sourceUrl: raw.sourceUrl ?? "",
+    retrievalDate: raw.retrievalDate ?? "",
+    sampleSize: raw.sampleSize ?? 1,
+    qualityFlag: raw.qualityFlag ?? "",
+    dataQualityScore: raw.dataQualityScore ?? null,
+    notes: raw.notes ?? "",
+    isEmployerFiling: raw.isEmployerFiling ?? true,
+    hubPay: raw.hubPay,
+  };
 }
 
-function loadMetric(): MetricMode {
+function loadHub(): HubId {
   try {
-    const raw = localStorage.getItem(STORAGE_METRIC);
-    if (raw) return normalizeMetric(raw);
-    // Migrate legacy keys once
-    const legacyV2 = localStorage.getItem("payrisk-benchmark-mode-v2");
-    if (legacyV2) return normalizeMetric(legacyV2);
-    const legacy = localStorage.getItem("payrisk-metric-v1");
-    if (legacy) return normalizeMetric(legacy);
+    const raw = localStorage.getItem(STORAGE_HUB);
+    if (isHubId(raw)) return raw;
   } catch {
     /* ignore */
   }
-  return "talent";
+  return DEFAULT_HUB;
+}
+
+function loadTarget(): TargetPercentile {
+  try {
+    const raw = localStorage.getItem(STORAGE_TARGET);
+    if (raw === "p25" || raw === "p50" || raw === "p75") return raw;
+  } catch {
+    /* ignore */
+  }
+  return "p50";
 }
 
 export interface AppData {
@@ -62,7 +108,10 @@ interface State {
   error: string | null;
   data: AppData | null;
   view: ViewId;
-  metric: MetricMode;
+  /** @deprecated Internal compatibility — India desk always uses market INR bands. */
+  metric: "market";
+  hub: HubId;
+  targetPercentile: TargetPercentile;
   profile: IncumbentProfile;
   portfolio: PortfolioPerson[];
   selectedId: string | null;
@@ -73,7 +122,8 @@ type Action =
   | { type: "loaded"; data: AppData }
   | { type: "failed"; error: string }
   | { type: "view"; view: ViewId }
-  | { type: "metric"; metric: MetricMode }
+  | { type: "hub"; hub: HubId }
+  | { type: "targetPercentile"; targetPercentile: TargetPercentile }
   | { type: "profile"; patch: Partial<IncumbentProfile> }
   | { type: "setProfile"; profile: IncumbentProfile }
   | { type: "portfolio"; portfolio: PortfolioPerson[] }
@@ -87,6 +137,11 @@ function normalizeProfile(raw: Partial<IncumbentProfile>): IncumbentProfile {
   const merged = { ...base, ...raw };
   if (merged.payType === "Base_Salary") merged.payType = "Base";
   if (merged.metro == null) merged.metro = "";
+  // Force India + INR for this product release
+  if (!merged.countryCode) merged.countryCode = "IN";
+  if (merged.currencyInput !== "INR" && merged.countryCode === "IN") {
+    merged.currencyInput = "INR";
+  }
   merged.currentPayInr = toAnnualInr(merged.rawAmount, merged.currencyInput, merged.countryCode);
   return merged;
 }
@@ -94,7 +149,12 @@ function normalizeProfile(raw: Partial<IncumbentProfile>): IncumbentProfile {
 function loadProfile(): IncumbentProfile {
   try {
     const raw = localStorage.getItem(STORAGE_PROFILE);
-    if (raw) return normalizeProfile(JSON.parse(raw));
+    if (raw) {
+      const parsed = normalizeProfile(JSON.parse(raw));
+      // Migrate stale US defaults from older localStorage
+      if (parsed.countryCode === "US" || !parsed.roleFamily) return defaultProfile();
+      return parsed;
+    }
   } catch {
     /* ignore */
   }
@@ -118,7 +178,9 @@ const initial: State = {
   error: null,
   data: null,
   view: "desk",
-  metric: loadMetric(),
+  metric: "market",
+  hub: loadHub(),
+  targetPercentile: loadTarget(),
   profile: loadProfile(),
   portfolio: loadPortfolio(),
   selectedId: null,
@@ -133,8 +195,10 @@ function reducer(state: State, action: Action): State {
       return { ...state, loading: false, error: action.error };
     case "view":
       return { ...state, view: action.view };
-    case "metric":
-      return { ...state, metric: action.metric };
+    case "hub":
+      return { ...state, hub: action.hub };
+    case "targetPercentile":
+      return { ...state, targetPercentile: action.targetPercentile };
     case "profile": {
       const next = normalizeProfile({ ...state.profile, ...action.patch });
       return { ...state, profile: next };
@@ -178,7 +242,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }),
     ])
       .then(([observations, marketBands, catalog]) =>
-        dispatch({ type: "loaded", data: { observations, marketBands, catalog } }),
+        dispatch({
+          type: "loaded",
+          data: {
+            observations: (observations as Partial<Observation>[]).map((o) =>
+              hydrateObservation(o as Partial<Observation> & { id: string; salaryInr: number }),
+            ),
+            marketBands,
+            catalog,
+          },
+        }),
       )
       .catch((e: unknown) =>
         dispatch({ type: "failed", error: e instanceof Error ? e.message : "Failed to load data" }),
@@ -203,11 +276,19 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_METRIC, state.metric);
+      localStorage.setItem(STORAGE_HUB, state.hub);
     } catch {
       /* ignore */
     }
-  }, [state.metric]);
+  }, [state.hub]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_TARGET, state.targetPercentile);
+    } catch {
+      /* ignore */
+    }
+  }, [state.targetPercentile]);
 
   return <Ctx.Provider value={{ state, dispatch }}>{children}</Ctx.Provider>;
 }
@@ -244,17 +325,15 @@ export function useGapAnalysis(): GapAnalysis | null {
   const { state } = useApp();
   const { matched, matchedBand } = useMarketMatch();
   return useMemo(() => {
-    const yourPay = incumbentMetricPay(state.profile, state.metric);
+    const yourPay = incumbentMetricPay(state.profile, "market");
     if (!yourPay) return null;
     if (!matched.length && !matchedBand) return null;
-    return analyzeGap(
-      matched,
-      yourPay,
-      state.metric,
-      sliceLabelFromProfile(state.profile),
-      { matchedBandRecord: matchedBand },
-    );
-  }, [matched, matchedBand, state.profile, state.metric]);
+    return analyzeGap(matched, yourPay, "market", sliceLabelFromProfile(state.profile), {
+      matchedBandRecord: matchedBand,
+      hubId: state.hub,
+      targetPercentile: state.targetPercentile,
+    });
+  }, [matched, matchedBand, state.profile, state.hub, state.targetPercentile]);
 }
 
 export function useUpdateProfile() {

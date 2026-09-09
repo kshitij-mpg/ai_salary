@@ -5,6 +5,7 @@ import { RiskMeter } from "../components/RiskMeter";
 import { CopilotPanel } from "../components/CopilotPanel";
 import {
   Card,
+  CompetitorEvidenceCard,
   EmptyState,
   MarketPositionBadge,
   PayGapBadge,
@@ -13,29 +14,76 @@ import {
   Stat,
   ThreatBadge,
 } from "../components/ui";
-import { formatCompactINR, formatCount, formatINR } from "../lib/money";
+import { formatCompactINR, formatINR } from "../lib/money";
 import { briefingText } from "../lib/export";
-import { BENCHMARK_MODE_OPTIONS, OBSERVATION_DISCLAIMER } from "../lib/constants";
+import { OBSERVATION_DISCLAIMER, STRATEGIC_TARGET_OPTIONS } from "../lib/constants";
+import { hubOption } from "../lib/metros";
 import {
-  modeBenchmarkLabel,
-  modeMethodologyLabel,
-  RISK_UNSUPPORTED_MESSAGE,
+  alignmentSummary,
+  FLIGHT_RISK_LABEL,
+  formatGapPhrase,
+  scoreFlightRisk,
+} from "../lib/indiaExecutive";
+import {
+  geographicPremiumInsight,
+  roleCompensationPremiumInsight,
+  roleDemandInsight,
 } from "../lib/marketBenchmark";
+import {
+  CONFIDENCE_LABEL,
+  confidenceFromSampleSize,
+  evidenceBasedOnLabel,
+} from "../lib/evidenceConfidence";
 
 export function DeskHome() {
   const { state, dispatch } = useApp();
   const analysis = useGapAnalysis();
   const { relaxNotes, bandRelaxNotes } = useMarketMatch();
-  const mode = state.metric === "nominal" ? "fx" : state.metric;
-  const modeOpt = BENCHMARK_MODE_OPTIONS.find((o) => o.id === mode);
-  const modeTitle =
-    mode === "talent"
-      ? "Talent Market View · default"
-      : mode === "market"
-        ? "Market Benchmark View"
-        : mode === "fx"
-          ? "FX View"
-          : "PPP View";
+  const hub = hubOption(state.hub);
+  const targetOpt =
+    STRATEGIC_TARGET_OPTIONS.find((o) => o.id === state.targetPercentile) ??
+    STRATEGIC_TARGET_OPTIONS[1]!;
+
+  const align = analysis
+    ? alignmentSummary({
+        yourPay: analysis.yourPay,
+        marketTarget: analysis.marketValue,
+        hubId: state.hub,
+        targetLabel: targetOpt.title,
+      })
+    : null;
+
+  const flight = analysis
+    ? scoreFlightRisk({
+        payGapPct: analysis.payGapPct,
+        record: analysis.matchedBandRecord,
+        roleFamily: state.profile.roleFamily,
+      })
+    : null;
+
+  const geoInsight = analysis
+    ? geographicPremiumInsight(
+        analysis.geographicPremiumIndex,
+        hub.shortLabel,
+        "the Bengaluru baseline",
+      )
+    : null;
+  const cciInsight = analysis
+    ? roleCompensationPremiumInsight(
+        analysis.compensationCompetitivenessIndex,
+        state.profile.roleFamily,
+      )
+    : null;
+  const demandInsight = analysis ? roleDemandInsight(analysis.roleDemandIndex) : null;
+
+  const alignToneClass =
+    align?.tone === "underpaid_critical"
+      ? "border-crimson/40 bg-crimson/8 text-crimson"
+      : align?.tone === "underpaid_warn"
+        ? "border-crimson/25 bg-crimson/5 text-ink"
+        : align?.tone === "overpaid"
+          ? "border-forest/30 bg-forest/8 text-ink"
+          : "border-ink/10 bg-ink-50/80 text-ink";
 
   return (
     <div className="grid gap-8 lg:grid-cols-[400px_1fr]">
@@ -43,7 +91,7 @@ export function DeskHome() {
         <Card className="p-5">
           <SectionTitle
             title="Incumbent"
-            subtitle="Set current compensation, then match role · experience · location to Market Bands."
+            subtitle="Set current INR compensation, then match role · experience to India Multi-Metro bands."
           />
           <ProfileForm compact />
         </Card>
@@ -52,74 +100,135 @@ export function DeskHome() {
 
       <div className="space-y-6">
         <header className="rise">
-          <p className="eyebrow">{modeTitle}</p>
+          <p className="eyebrow">
+            Desk · {hub.shortLabel} · {targetOpt.title}
+          </p>
           <h1 className="font-display mt-2 max-w-3xl text-4xl leading-[1.1] text-ink md:text-5xl">
-            What is this talent worth in the market?
+            If we pay this candidate X — how misaligned are they?
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-mute leading-relaxed">
-            {modeOpt?.explanation ?? "Mode-specific benchmark"}. Assessing{" "}
-            <span className="text-ink font-medium">{state.profile.label}</span>.
+            Comparing{" "}
+            <span className="text-ink font-medium">{state.profile.label}</span> against the{" "}
+            <span className="text-ink font-medium">{hub.label}</span>{" "}
+            <span className="text-ink font-medium">{targetOpt.shortLabel}</span> strategic target.
           </p>
-          <p className="mt-2 text-[11px] text-mute">{modeMethodologyLabel(mode)}</p>
         </header>
 
-        {!analysis ? (
+        {!analysis || !align ? (
           <EmptyState
             title="No market slice yet"
-            body="Adjust country, role family, experience, or pay type. Thin slices auto-relax city / title."
+            body="Adjust role family, role name, or experience band. Thin slices auto-relax filters."
           />
         ) : (
           <>
+            <Card className={`border p-5 rise ${alignToneClass}`}>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-80">
+                Immediate alignment & gap audit · {hub.shortLabel} · {targetOpt.shortLabel}
+              </p>
+              <p className="mt-3 font-display text-2xl leading-snug md:text-3xl">
+                Candidate is{" "}
+                <strong>{align.status === "Aligned" ? "Aligned" : align.status}</strong>
+                {align.status !== "Aligned" && align.gapInr != null ? (
+                  <>
+                    {" "}
+                    by <strong>{formatINR(Math.abs(align.gapInr))}</strong> (
+                    <strong>{Math.abs(align.gapPct ?? 0).toFixed(0)}%</strong>) against the local{" "}
+                    <strong>{hub.shortLabel}</strong> market target.
+                  </>
+                ) : (
+                  <>
+                    {" "}
+                    against the local <strong>{hub.shortLabel}</strong> market target.
+                  </>
+                )}
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+                <span className="rounded-md bg-paper/70 px-2.5 py-1 tabular">
+                  Paying {formatCompactINR(analysis.yourPay)}
+                </span>
+                <span className="rounded-md bg-paper/70 px-2.5 py-1 tabular">
+                  {hub.shortLabel} {targetOpt.shortLabel}{" "}
+                  {formatCompactINR(analysis.marketValue)}
+                </span>
+                <span className="rounded-md bg-paper/70 px-2.5 py-1 tabular">
+                  {formatGapPhrase(align.gapInr)}
+                </span>
+                {flight ? (
+                  <span className="rounded-md bg-paper/70 px-2.5 py-1">
+                    {FLIGHT_RISK_LABEL[flight.level]}
+                  </span>
+                ) : null}
+              </div>
+              {align.tone === "underpaid_critical" ? (
+                <p className="mt-3 text-sm font-medium">
+                  Underpayment exceeds 15% — remediation recommended before competitor pull
+                  intensifies.
+                </p>
+              ) : null}
+            </Card>
+
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Card className="p-4 rise rise-d1">
                 <Stat
                   label="Current salary"
                   value={formatCompactINR(analysis.yourPay)}
-                  hint="Cash FX · fixed across modes"
+                  hint="Incumbent annual INR · fixed across hubs"
                 />
               </Card>
               <Card className="p-4 rise rise-d2">
                 <Stat
-                  label="Market median (P50)"
-                  value={formatCompactINR(analysis.marketMedian)}
-                  hint={
-                    analysis.bandGeographyLevel
-                      ? `${analysis.bandGeographyLevel} band · n=${analysis.band.n.toLocaleString()}`
-                      : `${formatCount(analysis.band.n)} filings · computed band`
-                  }
+                  label={`${hub.shortLabel} ${targetOpt.shortLabel} target`}
+                  value={formatCompactINR(analysis.marketValue)}
+                  hint={`metros.${state.hub}.${state.targetPercentile} · ${evidenceBasedOnLabel(analysis.band.n)} · ${CONFIDENCE_LABEL[confidenceFromSampleSize(analysis.band.n)]}`}
                 />
               </Card>
               <Card className="p-4 rise rise-d3">
                 <Stat
-                  label={analysis.benchmarkLabel}
-                  value={formatCompactINR(analysis.marketValue)}
-                  hint={
-                    mode === "talent"
-                      ? "Market Benchmark × Demand × Scarcity"
-                      : mode === "market"
-                        ? `P50 × Geo ${analysis.geographicPremiumIndex?.toFixed(2) ?? "1"} × CCI ${analysis.compensationCompetitivenessIndex?.toFixed(2) ?? "1"}`
-                        : mode === "fx"
-                          ? "Current USD × FX_USD_INR (no market adjustments)"
-                          : "Current USD × PPP_Conversion_Factor"
-                  }
-                />
-              </Card>
-              <Card className="p-4 rise rise-d4">
-                <Stat
-                  label="Pay Gap %"
+                  label={`Pay gap vs ${targetOpt.shortLabel}`}
                   value={
                     analysis.payGapPct != null
                       ? `${analysis.payGapPct >= 0 ? "+" : ""}${analysis.payGapPct.toFixed(1)}%`
                       : "—"
                   }
-                  hint={`(Current − ${modeBenchmarkLabel(mode)}) / benchmark`}
+                  hint="(Incumbent − strategic target) / target"
                   tone={
-                    analysis.payGapPct != null && analysis.payGapPct < -10
+                    analysis.payGapPct != null && analysis.payGapPct < -15
                       ? "danger"
-                      : analysis.payGapPct != null && analysis.payGapPct > 10
-                        ? "ok"
-                        : "default"
+                      : analysis.payGapPct != null && analysis.payGapPct < -10
+                        ? "warn"
+                        : analysis.payGapPct != null && analysis.payGapPct > 10
+                          ? "ok"
+                          : "default"
                   }
+                />
+              </Card>
+              <Card className="p-4 rise rise-d4">
+                <Stat
+                  label={`Cash to close ${targetOpt.shortLabel}`}
+                  value={
+                    analysis.recommendedAdjustment > 0
+                      ? formatCompactINR(analysis.recommendedAdjustment)
+                      : "₹0"
+                  }
+                  tone={analysis.recommendedAdjustment > 0 ? "warn" : "ok"}
+                />
+              </Card>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <Card className="p-4">
+                <Stat label={`${hub.shortLabel} P25`} value={formatCompactINR(analysis.band.p25)} />
+              </Card>
+              <Card className="p-4">
+                <Stat label={`${hub.shortLabel} P50`} value={formatCompactINR(analysis.band.p50)} />
+              </Card>
+              <Card className="p-4">
+                <Stat label={`${hub.shortLabel} P75`} value={formatCompactINR(analysis.band.p75)} />
+              </Card>
+              <Card className="p-4">
+                <Stat
+                  label="Offer range (P75–P90)"
+                  value={`${formatCompactINR(analysis.expectedOfferLow)} – ${formatCompactINR(analysis.expectedOfferHigh)}`}
                 />
               </Card>
             </div>
@@ -138,75 +247,53 @@ export function DeskHome() {
                 </div>
               </Card>
               <Card className="p-4">
-                <div className="eyebrow">Retention risk</div>
-                <div className="mt-2">
-                  {analysis.riskSupported ? (
-                    <RiskBadge tier={analysis.riskTier} score={analysis.riskScore} />
-                  ) : (
-                    <p className="text-xs leading-relaxed text-mute">{RISK_UNSUPPORTED_MESSAGE}</p>
-                  )}
+                <div className="eyebrow">Flight risk</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <RiskBadge tier={analysis.riskTier} score={analysis.riskScore} />
+                  <ThreatBadge
+                    tier={analysis.competitiveThreatTier}
+                    score={analysis.competitiveThreatScore}
+                  />
                 </div>
               </Card>
               <Card className="p-4">
-                <div className="eyebrow">Competitive threat</div>
-                <div className="mt-2">
-                  {analysis.riskSupported ? (
-                    <ThreatBadge
-                      tier={analysis.competitiveThreatTier}
-                      score={analysis.competitiveThreatScore}
-                    />
-                  ) : (
-                    <p className="text-xs leading-relaxed text-mute">Not available in FX/PPP mode.</p>
-                  )}
-                </div>
+                <Stat
+                  label="Filings above pay"
+                  value={`${analysis.competitiveAbovePct.toFixed(0)}%`}
+                  hint={`${analysis.competitiveAbove} of ${analysis.matched.length} in Evidence sample`}
+                />
               </Card>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <Card className="p-4">
-                <Stat
-                  label="Expected offer range"
-                  value={
-                    analysis.offerRangeSupported
-                      ? `${formatCompactINR(analysis.expectedOfferLow)} – ${formatCompactINR(analysis.expectedOfferHigh)}`
-                      : "—"
-                  }
-                  hint={
-                    analysis.offerRangeSupported
-                      ? "P75–P90 × demand × scarcity (Talent only)"
-                      : "Available only in Talent Market View"
-                  }
-                />
+            {geoInsight || cciInsight || demandInsight || analysis.talentScarcityIndicator ? (
+              <Card className="p-4 text-sm leading-relaxed text-ink/85">
+                <div className="eyebrow mb-2">Market intelligence</div>
+                {demandInsight ? (
+                  <p className="mb-1">
+                    <strong>Role demand:</strong> {demandInsight}
+                  </p>
+                ) : null}
+                {analysis.talentScarcityIndicator ? (
+                  <p className="mb-1">
+                    <strong>Talent scarcity:</strong> {analysis.talentScarcityIndicator}
+                  </p>
+                ) : null}
+                {geoInsight ? (
+                  <p className="mb-1">
+                    <strong>Hub index:</strong> {geoInsight}
+                  </p>
+                ) : null}
+                {cciInsight ? (
+                  <p>
+                    <strong>Role compensation premium:</strong> {cciInsight}
+                  </p>
+                ) : null}
               </Card>
-              <Card className="p-4">
-                <Stat
-                  label="Recommended adjustment"
-                  value={
-                    analysis.recommendedAdjustment > 0
-                      ? `+${formatCompactINR(analysis.recommendedAdjustment)}`
-                      : "₹0"
-                  }
-                  hint={`Cash to reach ${analysis.benchmarkLabel}`}
-                  tone={analysis.recommendedAdjustment > 0 ? "warn" : "ok"}
-                />
-              </Card>
-              <Card className="p-4">
-                <Stat
-                  label="Correction budget (this role)"
-                  value={formatCompactINR(analysis.recommendedAdjustment)}
-                  hint="Annual base remediation exposure"
-                />
-              </Card>
-            </div>
+            ) : null}
 
             {relaxNotes.length || bandRelaxNotes.length ? (
               <Card className="border-amber/30 bg-amber/5 p-3 text-xs text-ink/80">
                 Match notes: {[...bandRelaxNotes, ...relaxNotes].join(" ")}
-                {analysis.compensationDefinition ? (
-                  <span className="mt-1 block text-mute">
-                    {analysis.compensationDefinition} — offered base wage, not total compensation.
-                  </span>
-                ) : null}
               </Card>
             ) : null}
 
@@ -214,8 +301,7 @@ export function DeskHome() {
               <Card className="p-5">
                 <h3 className="font-display text-2xl">Market position ladder</h3>
                 <p className="mt-1 text-xs text-mute">
-                  Current vs P25 / P50 / P75 / P90. Marker also shows {analysis.benchmarkLabel} when
-                  available.
+                  Current vs {hub.shortLabel} P25 / P50 / P75.
                 </p>
                 <div className="mt-6">
                   <GapLadder analysis={analysis} />
@@ -227,64 +313,38 @@ export function DeskHome() {
             </div>
 
             <Card className="p-5">
-              <h3 className="font-display text-2xl">Employee market detail</h3>
-              <dl className="mt-4 grid gap-3 sm:grid-cols-2 text-sm">
+              <h3 className="font-display text-2xl">Employee market profile</h3>
+              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                 <Detail k="Current salary" v={formatINR(analysis.yourPay)} />
-                <Detail k="Market median (P50)" v={formatINR(analysis.marketMedian)} />
-                <Detail k="P25" v={formatCompactINR(analysis.band.p25)} />
-                <Detail k="P75" v={formatCompactINR(analysis.band.p75)} />
-                <Detail k="P90" v={formatCompactINR(analysis.band.p90)} />
-                <Detail k={analysis.benchmarkLabel} v={formatINR(analysis.marketValue)} />
-                {mode === "talent" ? (
-                  <Detail
-                    k="Market Benchmark (ref)"
-                    v={formatINR(analysis.marketBenchmarkValue)}
-                  />
-                ) : null}
+                <Detail k={`${hub.shortLabel} P50`} v={formatCompactINR(analysis.band.p50)} />
+                <Detail k={`${hub.shortLabel} P25`} v={formatCompactINR(analysis.band.p25)} />
+                <Detail k={`${hub.shortLabel} P75`} v={formatCompactINR(analysis.band.p75)} />
+                <Detail k="Gap phrase" v={formatGapPhrase(align.gapInr)} />
                 <Detail
-                  k="Role demand"
-                  v={
-                    analysis.roleDemandIndex != null
-                      ? analysis.roleDemandIndex.toFixed(3)
-                      : "—"
-                  }
-                />
-                <Detail k="Talent scarcity" v={analysis.talentScarcityIndicator ?? "—"} />
-                <Detail
-                  k="Comp. competitiveness"
-                  v={
-                    analysis.compensationCompetitivenessIndex != null
-                      ? analysis.compensationCompetitivenessIndex.toFixed(3)
-                      : "—"
-                  }
-                />
-                <Detail
-                  k="Geographic premium"
-                  v={
-                    analysis.geographicPremiumIndex != null
-                      ? analysis.geographicPremiumIndex.toFixed(3)
-                      : "—"
-                  }
+                  k="Flight risk"
+                  v={flight ? `${FLIGHT_RISK_LABEL[flight.level]} (${flight.score})` : "—"}
                 />
               </dl>
 
-              <h4 className="mt-6 font-display text-xl">Top competitors</h4>
-              <ul className="mt-2 space-y-1 text-sm">
+              <h4 className="mt-6 font-display text-xl">Top competitors (preview)</h4>
+              <ul className="mt-3 space-y-2">
                 {analysis.topCompetitors.length ? (
                   analysis.topCompetitors.map((c) => (
-                    <li
+                    <CompetitorEvidenceCard
                       key={c.employerKey}
-                      className="flex justify-between gap-3 border-b border-ink/5 py-1.5"
-                    >
-                      <span>
-                        {c.employerLabel}
-                        <span className="text-mute"> · n={c.n}</span>
-                      </span>
-                      <span className="tabular">{formatCompactINR(c.medianPay)}</span>
-                    </li>
+                      employerLabel={c.employerLabel}
+                      estimatedOffer={c.medianPay}
+                      n={c.n}
+                      evidence={{
+                        roleFamily: state.profile.roleFamily || undefined,
+                        experience: state.profile.experienceLevel || undefined,
+                        geography: hub.shortLabel,
+                        sampleRoles: c.sampleRoles,
+                      }}
+                    />
                   ))
                 ) : (
-                  <li className="text-mute">No employer groups in matched filings.</li>
+                  <li className="text-sm text-mute">No employer groups above pay in this slice.</li>
                 )}
               </ul>
             </Card>
@@ -295,8 +355,8 @@ export function DeskHome() {
               <div className="text-sm text-mute">
                 Full amount: <span className="tabular text-ink">{formatINR(analysis.yourPay)}</span>
                 {" · "}
-                {analysis.benchmarkLabel}:{" "}
-                <span className="tabular text-ink">{formatINR(analysis.marketValue)}</span>
+                {hub.shortLabel} median:{" "}
+                <span className="tabular text-ink">{formatINR(analysis.marketMedian)}</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button

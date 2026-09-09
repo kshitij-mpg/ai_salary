@@ -60,7 +60,7 @@ export function applyFilters(rows: Observation[], filters: Filters): Observation
 }
 
 /**
- * Progressive match on LCA filings: prefer exact slice; relax city/metro/title/experience.
+ * Progressive match on India filings: prefer exact slice; relax city/metro/title/experience.
  */
 export function matchMarket(
   rows: Observation[],
@@ -147,17 +147,47 @@ function preferExactExperience(
   return exact.length ? exact : candidates.filter((b) => b.experienceLevel === "All Levels (unspecified)");
 }
 
+function preferRoleName(
+  candidates: MarketBandRecord[],
+  profile: IncumbentProfile,
+): MarketBandRecord[] {
+  if (!profile.roleName) return candidates;
+  const exact = candidates.filter((b) => b.roleName === profile.roleName);
+  return exact.length ? exact : candidates;
+}
+
 /**
- * Pre-aggregated market band lookup with geography fallback:
- * City (n≥5) → Metro (n≥10) → State (n≥15) → National (n≥30).
+ * Pre-aggregated market band lookup.
+ * India Multi-Metro summary bands are matched first (Role Family × Experience × optional Role Name).
+ * Legacy US geography fallback retained: City → Metro → State → National.
  */
 export function matchMarketBand(
   bands: MarketBandRecord[],
   profile: IncumbentProfile,
 ): { band: MarketBandRecord | null; relaxNotes: string[] } {
   const relaxNotes: string[] = [];
-  const candidates = preferExactExperience(sliceCandidates(bands, profile), profile);
+  const candidates = preferRoleName(
+    preferExactExperience(sliceCandidates(bands, profile), profile),
+    profile,
+  );
   if (!candidates.length) return { band: null, relaxNotes };
+
+  const multiMetro = candidates
+    .filter((b) => b.geographyLevel === "Multi-Metro" || !!b.metros)
+    .sort((a, b) => {
+      // Prefer exact role name, then larger sample
+      const aExact = profile.roleName && a.roleName === profile.roleName ? 1 : 0;
+      const bExact = profile.roleName && b.roleName === profile.roleName ? 1 : 0;
+      if (bExact !== aExact) return bExact - aExact;
+      return b.sampleSize - a.sampleSize;
+    });
+  if (multiMetro.length) {
+    const hit = multiMetro[0]!;
+    relaxNotes.push(
+      `Matched India Multi-Metro band (${hit.roleFamily}${hit.roleName ? ` · ${hit.roleName}` : ""} · ${hit.experienceLevel}, n=${hit.sampleSize}).`,
+    );
+    return { band: hit, relaxNotes };
+  }
 
   const tryPick = (
     level: MarketBandRecord["geographyLevel"],
@@ -220,6 +250,15 @@ export function matchMarketBand(
     `Matched national band (n≥${GEO_THRESHOLDS.national}).`,
   );
   if (national) return { band: national, relaxNotes };
+
+  // Fallback: best available candidate regardless of geo threshold
+  const best = [...candidates].sort((a, b) => b.sampleSize - a.sampleSize)[0] ?? null;
+  if (best) {
+    relaxNotes.push(
+      `Using best available band (${best.geographyLevel || "unknown"}, n=${best.sampleSize}).`,
+    );
+    return { band: best, relaxNotes };
+  }
 
   relaxNotes.push("No pre-aggregated band met geography sample thresholds — using filing quantiles.");
   return { band: null, relaxNotes };

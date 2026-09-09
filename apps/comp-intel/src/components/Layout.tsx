@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 import { useApp } from "../state";
-import type { ViewId } from "../types";
-import { BENCHMARK_MODE_OPTIONS, PRODUCT_NAME, PRODUCT_TAGLINE } from "../lib/constants";
-import { metricCurrencyLabel, modeExplanation, modeMethodologyLabel } from "../lib/marketBenchmark";
+import type { HubId, TargetPercentile, ViewId } from "../types";
+import { PRODUCT_NAME, PRODUCT_TAGLINE, STRATEGIC_TARGET_OPTIONS } from "../lib/constants";
+import { HUB_OPTIONS, hubOption } from "../lib/metros";
 import { formatCompactINR } from "../lib/money";
 
 const NAV: { id: ViewId; label: string; hint: string }[] = [
-  { id: "desk", label: "Desk", hint: "Talent / market view" },
+  { id: "desk", label: "Desk", hint: "Alignment & gap audit" },
   { id: "gap", label: "Gap Lab", hint: "Market position ladder" },
-  { id: "flight", label: "Retention", hint: "Retention risk" },
+  { id: "flight", label: "Retention", hint: "Flight risk" },
   { id: "peers", label: "Competitors", hint: "Who would hire them" },
   { id: "scenarios", label: "Scenarios", hint: "Correction cost" },
   { id: "portfolio", label: "Portfolio", hint: "Team risk board" },
@@ -18,9 +18,10 @@ const NAV: { id: ViewId; label: string; hint: string }[] = [
 
 export function TopBar() {
   const { state, dispatch } = useApp();
-  const activeMetric = state.metric === "nominal" ? "fx" : state.metric;
-  const activeOpt = BENCHMARK_MODE_OPTIONS.find((o) => o.id === activeMetric);
-  // Current salary display — always FX; mode does not change this number.
+  const activeHub = hubOption(state.hub);
+  const activeTarget =
+    STRATEGIC_TARGET_OPTIONS.find((o) => o.id === state.targetPercentile) ??
+    STRATEGIC_TARGET_OPTIONS[1]!;
   const currentFx = state.profile.currentPayInr;
 
   return (
@@ -30,7 +31,7 @@ export function TopBar() {
           <div className="flex items-baseline gap-2">
             <span className="font-display text-xl tracking-tight text-ink">{PRODUCT_NAME}</span>
             <span className="hidden text-[10px] uppercase tracking-[0.2em] text-copper sm:inline">
-              Mode-aware benchmarks
+              India multi-metro
             </span>
           </div>
           <p className="truncate text-xs text-mute">{PRODUCT_TAGLINE}</p>
@@ -55,8 +56,27 @@ export function TopBar() {
           })}
         </nav>
 
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <label className="flex min-w-[12rem] flex-col gap-0.5 text-left">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-mute">
+                Active Market Hub Context Selector
+              </span>
+              <select
+                className="rounded-lg border border-ink/15 bg-paper px-2.5 py-1.5 text-xs font-medium text-ink shadow-sm outline-none transition focus:border-copper focus:ring-1 focus:ring-copper/40"
+                value={state.hub}
+                aria-label="Active Market Hub Context Selector"
+                title={`${activeHub.label} · index ${activeHub.multiplier.toFixed(2)} vs Bengaluru`}
+                onChange={(e) => dispatch({ type: "hub", hub: e.target.value as HubId })}
+              >
+                {HUB_OPTIONS.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <button
               type="button"
               title="Edit offered pay on Desk"
@@ -70,32 +90,47 @@ export function TopBar() {
                 {formatCompactINR(currentFx)}
               </span>
             </button>
-            <div
-              className="flex rounded-lg border border-ink/10 p-0.5 text-xs"
-              role="group"
-              aria-label="Benchmark methodology"
-              title={modeMethodologyLabel(activeMetric)}
-            >
-              {BENCHMARK_MODE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  aria-pressed={activeMetric === opt.id}
-                  className={`rounded-md px-2 py-1 ${
-                    activeMetric === opt.id ? "bg-copper text-paper" : "text-mute"
-                  }`}
-                  onClick={() => dispatch({ type: "metric", metric: opt.id })}
-                  title={`${opt.title} — ${opt.explanation}`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+
+            <div className="flex flex-col gap-0.5 text-left">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-mute">
+                Strategic Compensation Target
+              </span>
+              <div
+                className="flex rounded-lg border border-ink/10 p-0.5 text-xs"
+                role="group"
+                aria-label="Strategic Compensation Target"
+                title={activeTarget.explanation}
+              >
+                {STRATEGIC_TARGET_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    aria-pressed={state.targetPercentile === opt.id}
+                    className={`rounded-md px-2.5 py-1 ${
+                      state.targetPercentile === opt.id
+                        ? "bg-copper text-paper"
+                        : "text-mute hover:text-ink"
+                    }`}
+                    onClick={() =>
+                      dispatch({
+                        type: "targetPercentile",
+                        targetPercentile: opt.id as TargetPercentile,
+                      })
+                    }
+                    title={`${opt.title} — ${opt.explanation}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-          <p className="hidden max-w-lg text-right text-[10px] text-mute lg:block">
-            <span className="font-medium text-ink/70">{metricCurrencyLabel(activeMetric)}</span>
+          <p className="hidden max-w-xl text-right text-[10px] text-mute lg:block">
+            <span className="font-medium text-ink/70">{activeHub.shortLabel}</span>
             {" · "}
-            {activeOpt?.explanation ?? modeExplanation(activeMetric)}
+            <span className="font-medium text-ink/70">{activeTarget.title}</span>
+            {" · "}
+            {activeTarget.explanation}
           </p>
         </div>
       </div>

@@ -1,11 +1,26 @@
-import type { ReactNode } from "react";
-import type { RiskTier, GapVerdict, MarketPosition, PayGapClass, CompetitiveThreatTier } from "../types";
+import { useState, type ReactNode } from "react";
+import type {
+  RiskTier,
+  GapVerdict,
+  MarketPosition,
+  PayGapClass,
+  CompetitiveThreatTier,
+  EvidenceConfidence,
+} from "../types";
 import { RISK_LABEL, VERDICT_LABEL } from "../lib/constants";
 import {
   MARKET_POSITION_LABEL,
   PAY_GAP_LABEL,
   THREAT_LABEL,
 } from "../lib/marketBenchmark";
+import {
+  CONFIDENCE_LABEL,
+  CONFIDENCE_TOOLTIP,
+  confidenceFromSampleSize,
+  evidenceBasedOnLabel,
+  evidenceRecordCountLabel,
+} from "../lib/evidenceConfidence";
+import { formatCompactINR } from "../lib/money";
 
 export function Eyebrow({ children }: { children: ReactNode }) {
   return <p className="eyebrow">{children}</p>;
@@ -108,6 +123,132 @@ export function ThreatBadge({ tier, score }: { tier: CompetitiveThreatTier; scor
       Threat {THREAT_LABEL[tier]}
       {score != null ? ` · ${score}` : ""}
     </span>
+  );
+}
+
+export function ConfidenceBadge({
+  confidence,
+  n,
+  showTitle = true,
+}: {
+  confidence?: EvidenceConfidence;
+  /** If provided, confidence is derived from sample size. */
+  n?: number;
+  showTitle?: boolean;
+}) {
+  const level = confidence ?? confidenceFromSampleSize(n ?? 0);
+  const tone: Record<EvidenceConfidence, string> = {
+    low: "badge-conf-low",
+    medium: "badge-conf-medium",
+    high: "badge-conf-high",
+    very_high: "badge-conf-very-high",
+  };
+  return (
+    <span
+      className={`badge ${tone[level]}`}
+      title={CONFIDENCE_TOOLTIP}
+      aria-label={`${CONFIDENCE_LABEL[level]} confidence. ${CONFIDENCE_TOOLTIP}`}
+    >
+      {showTitle ? `Confidence: ${CONFIDENCE_LABEL[level]}` : CONFIDENCE_LABEL[level]}
+    </span>
+  );
+}
+
+export type CompetitorEvidenceMeta = {
+  roleFamily?: string;
+  experience?: string;
+  geography?: string;
+  sampleRoles?: string[];
+};
+
+/** Executive competitor card: offer + evidence language + confidence (no raw n=). */
+export function CompetitorEvidenceCard({
+  employerLabel,
+  estimatedOffer,
+  n,
+  evidence,
+  expandable = true,
+}: {
+  employerLabel: string;
+  estimatedOffer: number;
+  n: number;
+  evidence?: CompetitorEvidenceMeta;
+  expandable?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const conf = confidenceFromSampleSize(n);
+
+  return (
+    <li className="rounded-lg border border-ink/8 px-3 py-2.5 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-medium text-ink">{employerLabel}</div>
+          <div className="mt-1.5 eyebrow">Estimated offer</div>
+          <div className="mt-0.5 font-display text-xl tabular leading-none text-ink">
+            {formatCompactINR(estimatedOffer)}
+          </div>
+          <p className="mt-2 text-[11px] text-mute" title={CONFIDENCE_TOOLTIP}>
+            {evidenceBasedOnLabel(n)}
+          </p>
+          <div className="mt-1.5">
+            <ConfidenceBadge confidence={conf} />
+          </div>
+        </div>
+        {expandable ? (
+          <button
+            type="button"
+            className="shrink-0 text-[11px] font-medium text-copper hover:underline"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+          >
+            {open ? "Hide evidence" : "Market evidence"}
+          </button>
+        ) : null}
+      </div>
+      {expandable && open ? (
+        <dl className="mt-3 grid gap-1.5 border-t border-ink/8 pt-3 text-[11px] text-mute">
+          <div className="flex justify-between gap-2">
+            <dt>Evidence</dt>
+            <dd className="tabular text-ink">{evidenceRecordCountLabel(n)} comparable</dd>
+          </div>
+          {evidence?.roleFamily ? (
+            <div className="flex justify-between gap-2">
+              <dt>Role family</dt>
+              <dd className="text-right text-ink">{evidence.roleFamily}</dd>
+            </div>
+          ) : null}
+          {evidence?.experience ? (
+            <div className="flex justify-between gap-2">
+              <dt>Experience</dt>
+              <dd className="text-right text-ink">{evidence.experience}</dd>
+            </div>
+          ) : null}
+          {evidence?.geography ? (
+            <div className="flex justify-between gap-2">
+              <dt>Geography</dt>
+              <dd className="text-right text-ink">{evidence.geography}</dd>
+            </div>
+          ) : null}
+          {evidence?.sampleRoles?.length ? (
+            <div className="flex justify-between gap-2">
+              <dt>Roles seen</dt>
+              <dd className="text-right text-ink">{evidence.sampleRoles.slice(0, 3).join(" · ")}</dd>
+            </div>
+          ) : null}
+          <p className="mt-1 leading-relaxed">{CONFIDENCE_TOOLTIP}</p>
+        </dl>
+      ) : null}
+    </li>
+  );
+}
+
+/** Compact evidence cell for tables (records + confidence badge). */
+export function EvidenceCell({ n }: { n: number }) {
+  return (
+    <div className="space-y-1" title={CONFIDENCE_TOOLTIP}>
+      <div className="tabular text-ink">{evidenceRecordCountLabel(n)}</div>
+      <ConfidenceBadge n={n} showTitle={false} />
+    </div>
   );
 }
 

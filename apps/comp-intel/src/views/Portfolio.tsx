@@ -27,16 +27,18 @@ export function PortfolioView() {
     return state.portfolio.map((person) => {
       const { matched } = matchMarket(state.data!.observations, person);
       const { band: matchedBand } = matchMarketBand(state.data!.marketBands, person);
-      const yourPay = incumbentMetricPay(person, state.metric);
+      const yourPay = incumbentMetricPay(person, "market");
       const analysis =
         (matched.length || matchedBand) && yourPay
-          ? analyzeGap(matched, yourPay, state.metric, sliceLabelFromProfile(person), {
+          ? analyzeGap(matched, yourPay, "market", sliceLabelFromProfile(person), {
               matchedBandRecord: matchedBand,
+              hubId: state.hub,
+              targetPercentile: state.targetPercentile,
             })
           : null;
       return { person, analysis };
     });
-  }, [state.data, state.portfolio, state.metric]);
+  }, [state.data, state.portfolio, state.hub, state.targetPercentile]);
 
   const kpis = useMemo(() => {
     const scored = rows.map((r) => r.analysis).filter((a): a is NonNullable<typeof a> => !!a);
@@ -58,7 +60,7 @@ export function PortfolioView() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <SectionTitle
           title="Portfolio · mode-aware KPIs"
-          subtitle="Team roll-up of selected-mode benchmark, pay gap, retention risk (Talent/Market only), and correction budget. Recalculates when you change the benchmark toggle."
+          subtitle={`Team roll-up for ${state.hub === "bengaluru" ? "Bengaluru baseline" : "selected metro"} benchmarks, pay gap, retention risk (Talent Market only), and correction budget. Recalculates when you change the hub selector or benchmark toggle.`}
         />
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn-primary" onClick={addFromDesk}>
@@ -166,7 +168,7 @@ export function PortfolioView() {
                     {person.countryCode} · {person.roleFamily} · {person.experienceLevel}
                   </td>
                   <td className="px-3 py-3 tabular">
-                    {formatCompactINR(analysis?.yourPay ?? incumbentMetricPay(person, state.metric))}
+                    {formatCompactINR(analysis?.yourPay ?? incumbentMetricPay(person, "market"))}
                   </td>
                   <td className="px-3 py-3 tabular">{formatCompactINR(analysis?.marketValue)}</td>
                   <td className="px-3 py-3">

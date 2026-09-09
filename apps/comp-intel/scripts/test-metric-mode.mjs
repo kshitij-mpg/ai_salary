@@ -97,18 +97,18 @@ if (band) {
     `t=${Math.round(talent)} m=${Math.round(market)} fx=${Math.round(fx)} ppp=${Math.round(ppp)}`,
   );
 
-  // Synthetic product brief: P50=$150k, geo=1, cci=1.15, High scarcity → ×1.20
+  // Synthetic: P50=$180k ≠ current $150k so Market ≠ FX; Geo/CCI ignored; High scarcity → ×1.10
   const synthetic = {
-    geographicPremiumIndex: 1,
-    compensationCompetitivenessIndex: 1.15,
+    geographicPremiumIndex: 1.31,
+    compensationCompetitivenessIndex: 1.53,
     roleDemandIndex: 0,
     talentScarcityIndicator: "High",
   };
-  const synP50 = 150_000 * FX_USD_INR;
+  const synP50 = 180_000 * FX_USD_INR;
   const synMarket = selectedBenchmarkValue("market", synP50, synthetic, current);
   const synTalent = selectedBenchmarkValue("talent", synP50, synthetic, current);
-  assert("Brief Market ≈ ₹1.65 Cr", Math.abs(synMarket - 172_500 * FX_USD_INR) < 1);
-  assert("Brief Talent ≈ ₹1.99 Cr", Math.abs(synTalent - 172_500 * 1.2 * FX_USD_INR) < 1);
+  assert("Brief Market = matched P50", Math.abs(synMarket - synP50) < 1);
+  assert("Brief Talent = P50 × 1.10", Math.abs(synTalent - synP50 * 1.1) < 1);
 
   console.log("\n--- $150k mode benchmarks ---");
   console.log(`  Band: ${band.roleFamily} / ${band.experienceLevel} / scarcity=${band.talentScarcityIndicator}`);
