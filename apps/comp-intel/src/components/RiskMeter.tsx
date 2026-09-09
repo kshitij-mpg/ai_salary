@@ -8,8 +8,7 @@ export function RiskMeter({ analysis }: { analysis: GapAnalysis }) {
         <div className="eyebrow">Retention risk score</div>
         <p className="mt-3 text-sm leading-relaxed text-mute">{RISK_UNSUPPORTED_MESSAGE}</p>
         <p className="mt-2 text-xs text-mute">
-          Switch to Talent Market or Market Benchmark to compute retention risk and competitive
-          threat.
+          Switch to Talent Market View to compute retention risk and competitive threat.
         </p>
       </div>
     );
@@ -23,7 +22,7 @@ export function RiskMeter({ analysis }: { analysis: GapAnalysis }) {
           <div className="eyebrow">Retention risk score</div>
           <div className="mt-1 font-display text-5xl tabular leading-none text-ink">{score}</div>
           <p className="mt-1 text-xs text-mute">
-            40% pay gap · 30% scarcity · 20% demand · 10% competitiveness
+            40% pay gap · 30% scarcity · 20% demand · 10% competitor premium
           </p>
         </div>
         <div className="text-right text-xs text-mute">

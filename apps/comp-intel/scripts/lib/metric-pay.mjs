@@ -1,6 +1,6 @@
 /**
 
- * Shared incumbent metric-pay logic (mirrors src/lib/analysis.ts for Node tests).
+ * Shared incumbent metric-pay logic (mirrors src/lib/analysis.ts + marketBenchmark.ts for Node tests).
 
  *
 
@@ -8,7 +8,15 @@
 
  * PPP equivalent of current salary is a separate helper used only as the PPP benchmark.
 
+ *
+
+ * Market Benchmark = matched P50 only (no Geo / CCI multipliers).
+
+ * Talent Market Value = P50 × Demand × Scarcity.
+
  */
+
+
 
 export const FX_USD_INR = 95.43;
 
@@ -102,16 +110,6 @@ export function incumbentPppPay(profile) {
 
 export function selectedBenchmarkValue(mode, p50Fx, record, currentFx) {
 
-  const geo = record?.geographicPremiumIndex > 0 ? record.geographicPremiumIndex : 1;
-
-  const cci =
-
-    record?.compensationCompetitivenessIndex > 0
-
-      ? record.compensationCompetitivenessIndex
-
-      : 1;
-
   const scarcityKey = String(record?.talentScarcityIndicator ?? "")
 
     .trim()
@@ -120,17 +118,19 @@ export function selectedBenchmarkValue(mode, p50Fx, record, currentFx) {
 
   let scarcity = 1;
 
-  if (scarcityKey === "critical" || scarcityKey === "very high") scarcity = 1.25;
+  if (scarcityKey === "critical" || scarcityKey === "very high") scarcity = 1.15;
 
-  else if (scarcityKey === "high") scarcity = 1.2;
+  else if (scarcityKey === "high") scarcity = 1.1;
 
-  else if (scarcityKey === "medium" || scarcityKey === "moderate") scarcity = 1.1;
+  else if (scarcityKey === "medium" || scarcityKey === "moderate") scarcity = 1.05;
 
   const d = record?.roleDemandIndex;
 
   const demand = d == null || !Number.isFinite(d) || d < 0 ? 1 : d >= 1 ? d : 1 + d;
 
-  const market = Math.round(p50Fx * geo * cci * 100) / 100;
+  // Market Benchmark = matched P50 only (no Geo / CCI — avoids double-counting).
+
+  const market = Math.round(p50Fx * 100) / 100;
 
   const talent = Math.round(market * demand * scarcity * 100) / 100;
 
@@ -151,5 +151,4 @@ export function selectedBenchmarkValue(mode, p50Fx, record, currentFx) {
   return p50Fx;
 
 }
-
 

@@ -1,13 +1,21 @@
 import { useGapAnalysis, useApp } from "../state";
 import { GapLadder } from "../components/GapLadder";
 import { PayHistogram } from "../components/PayHistogram";
-import { Card, EmptyState, SectionTitle, Stat } from "../components/ui";
+import { Card, ConfidenceBadge, EmptyState, SectionTitle, Stat } from "../components/ui";
+import { hubOption } from "../lib/metros";
 import { formatCompactINR, formatINR } from "../lib/money";
 import { groupSources } from "../lib/stats";
+import {
+  CONFIDENCE_LABEL,
+  CONFIDENCE_TOOLTIP,
+  confidenceFromSampleSize,
+  evidenceBasedOnLabel,
+} from "../lib/evidenceConfidence";
 
 export function GapLab() {
   const analysis = useGapAnalysis();
   const { state } = useApp();
+  const hub = hubOption(state.hub);
 
   if (!analysis) {
     return (
@@ -19,19 +27,25 @@ export function GapLab() {
   }
 
   const sources = groupSources(analysis.matched, analysis.metric).slice(0, 15);
+  const bandConf = confidenceFromSampleSize(analysis.band.n);
 
   return (
     <div className="space-y-8">
       <SectionTitle
         title="Gap Lab"
-        subtitle={`Where ${state.profile.label} sits vs matched market band (P10–P90) and ${analysis.benchmarkLabel}. Mode: ${analysis.metric === "ppp" ? "PPP" : analysis.metric === "market" ? "Market Benchmark" : analysis.metric === "talent" ? "Talent Market" : "FX"}.`}
+        subtitle={`Where ${state.profile.label} sits vs ${hub.shortLabel} market band (P10–P90 · index ${hub.multiplier.toFixed(2)}) and ${analysis.benchmarkLabel}. Mode: ${analysis.metric === "ppp" ? "PPP" : analysis.metric === "market" ? "Market Benchmark" : analysis.metric === "talent" ? "Talent Market" : "FX"}.`}
       />
 
       {analysis.bandGeographyLevel ? (
         <Card className="border-copper/20 bg-copper/5 p-3 text-xs text-ink/85">
-          Matched <strong>{analysis.bandGeographyLevel}</strong> market band · n=
-          {analysis.band.n.toLocaleString()} · {analysis.compensationDefinition ?? "LCA offered base wage"}
-          {analysis.bandSource === "computed" ? " (computed from filings — no pre-aggregated band)" : ""}
+          Matched <strong>{analysis.bandGeographyLevel}</strong> market band ·{" "}
+          {evidenceBasedOnLabel(analysis.band.n)} · Confidence:{" "}
+          <span title={CONFIDENCE_TOOLTIP}>{CONFIDENCE_LABEL[bandConf]}</span>
+          {" · "}
+          {analysis.compensationDefinition ?? "India Tech Benchmark INR"}
+          {analysis.bandSource === "computed"
+            ? " (computed from filings — no pre-aggregated band)"
+            : ""}
         </Card>
       ) : null}
 
@@ -64,7 +78,9 @@ export function GapLab() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="p-5">
           <h3 className="font-display text-2xl">Observation distribution</h3>
-          <p className="mt-1 text-xs text-mute">Histogram of matching source values. Copper bar includes your pay.</p>
+          <p className="mt-1 text-xs text-mute">
+            Histogram of matching source values. Copper bar includes your pay.
+          </p>
           <div className="mt-4">
             <PayHistogram analysis={analysis} />
           </div>
@@ -72,7 +88,9 @@ export function GapLab() {
 
         <Card className="p-5">
           <h3 className="font-display text-2xl">Under / over by employer</h3>
-          <p className="mt-1 text-xs text-mute">Your pay vs median LCA filing by employer group.</p>
+          <p className="mt-1 text-xs text-mute">
+            Your pay vs median filing by employer group. Confidence reflects sample size.
+          </p>
           <div className="mt-4 max-h-80 space-y-2 overflow-auto pr-1">
             {sources.map((s) => {
               const med = s.medianPublished;
@@ -85,12 +103,19 @@ export function GapLab() {
                 >
                   <div className="min-w-0">
                     <div className="truncate font-medium text-ink">{s.sourceName}</div>
-                    <div className="text-[11px] text-mute">
-                      n={s.n} · {s.sourceType || "source"}
-                      {s.isEmployerFiling ? " · LCA filing" : ""}
+                    <div className="mt-0.5 text-[11px] text-mute">
+                      {evidenceBasedOnLabel(s.n)}
+                      {s.sourceType ? ` · ${s.sourceType}` : ""}
+                      {s.isEmployerFiling ? " · filing" : ""}
+                    </div>
+                    <div className="mt-1">
+                      <ConfidenceBadge n={s.n} showTitle={false} />
                     </div>
                   </div>
                   <div className="shrink-0 text-right tabular">
+                    <div className="text-[10px] uppercase tracking-wide text-mute">
+                      Estimated offer
+                    </div>
                     <div>{formatCompactINR(med)}</div>
                     <div
                       className={`text-[11px] ${
@@ -140,11 +165,11 @@ export function GapLab() {
           {analysis.metric === "ppp"
             ? "PPP-adjusted INR for market percentiles; current salary stays FX; PPP benchmark = USD × PPP factor"
             : analysis.metric === "market"
-              ? "Market Benchmark FX INR (P50 × Geo × CCI)"
+              ? "Market Benchmark = matched P50 only (no Geo / CCI multipliers)"
               : analysis.metric === "talent"
-                ? "Talent Market FX INR (Market Benchmark × Demand × Scarcity)"
-                : "FX benchmark = current USD × FX (cash conversion only)"}.{" "}
-          Selected benchmark ({analysis.benchmarkLabel}):{" "}
+                ? "Talent Market = matched P50 × Demand × Scarcity"
+                : "FX benchmark = current USD × FX (cash conversion only)"}
+          . Selected benchmark ({analysis.benchmarkLabel}):{" "}
           {analysis.marketValue != null ? formatINR(analysis.marketValue) : "—"}. Source medians use
           published midpoints when present, else observation set median.
         </p>

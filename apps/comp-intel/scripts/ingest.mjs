@@ -1,30 +1,84 @@
 /**
- * Build-time ingest: analytics-ready LCA filings + market bands → typed JSON.
- * Source of truth: deliverables/analytics_ready/ (repo root).
+ * Build-time ingest: India multi-metro tech role benchmarks → lean typed JSON.
+ *
+ * Sources of truth (ai_salary/):
+ *   - india_tech_roles_benchmark.csv          → observations.json (sampled filing grain)
+ *   - india_tech_roles_benchmark_summary.csv  → marketBands.json (Role × Experience + metros)
+ *
+ * Legacy US LCA deliverables/analytics_ready/*.csv are intentionally bypassed.
+ *
+ * Payload discipline:
+ *   - Drop unused long string columns (SOC, Decision_Date, Notes, Source_URL, …)
+ *   - Cap Evidence ledger at MAX_PER_SLICE top-paying filings per Role×Experience
+ *   - Pre-compute payBins on each market band for Recharts (full population, not sample)
  */
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import Papa from "papaparse";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, "..");
-const repoRoot = path.resolve(appRoot, "../../..");
+const aiSalaryRoot = path.resolve(appRoot, "../..");
 
-const CLEANED_CSV = path.join(
-  repoRoot,
-  "deliverables/analytics_ready/AI_Talent_Benchmark_CLEANED.csv",
-);
-const BANDS_CSV = path.join(
-  repoRoot,
-  "deliverables/analytics_ready/AI_Talent_Benchmark_MARKET_BANDS.csv",
-);
-const STANDARDIZED_CSV = path.join(
-  repoRoot,
-  "deliverables/analytics_ready/AI_Talent_Benchmark_STANDARDIZED.csv",
-);
+const FILING_CSV = path.join(aiSalaryRoot, "india_tech_roles_benchmark.csv");
+const SUMMARY_CSV = path.join(aiSalaryRoot, "india_tech_roles_benchmark_summary.csv");
 
-export const FX_USD_INR = 95.43;
-export const PPP_FACTOR = 23;
+/** Max detailed filings kept per Role_Name × Experience_Band for Evidence. */
+const MAX_PER_SLICE = 60;
+/** Histogram bins stored on each market band (full population). */
+const PAY_BIN_COUNT = 14;
+
+const HUB_IDS = ["bengaluru", "mumbai", "delhi_ncr", "hyderabad", "chennai", "pune"];
+
+const SUMMARY_HUB_COLS = {
+  bengaluru: {
+    p25: "Benchmark_INR_P25",
+    p50: "Benchmark_INR_Median",
+    p75: "Benchmark_INR_P75",
+    mean: "Benchmark_INR_Mean",
+  },
+  mumbai: {
+    p25: "Benchmark_Mumbai_P25",
+    p50: "Benchmark_Mumbai_Median",
+    p75: "Benchmark_Mumbai_P75",
+    mean: "Benchmark_Mumbai_Mean",
+  },
+  delhi_ncr: {
+    p25: "Benchmark_Delhi_NCR_P25",
+    p50: "Benchmark_Delhi_NCR_Median",
+    p75: "Benchmark_Delhi_NCR_P75",
+    mean: "Benchmark_Delhi_NCR_Mean",
+  },
+  hyderabad: {
+    p25: "Benchmark_Hyderabad_P25",
+    p50: "Benchmark_Hyderabad_Median",
+    p75: "Benchmark_Hyderabad_P75",
+    mean: "Benchmark_Hyderabad_Mean",
+  },
+  chennai: {
+    p25: "Benchmark_Chennai_P25",
+    p50: "Benchmark_Chennai_Median",
+    p75: "Benchmark_Chennai_P75",
+    mean: "Benchmark_Chennai_Mean",
+  },
+  pune: {
+    p25: "Benchmark_Pune_P25",
+    p50: "Benchmark_Pune_Median",
+    p75: "Benchmark_Pune_P75",
+    mean: "Benchmark_Pune_Mean",
+  },
+};
+
+const FILING_HUB_COLS = {
+  bengaluru: "Benchmark_INR_Salary",
+  mumbai: "Benchmark_INR_Mumbai",
+  delhi_ncr: "Benchmark_INR_Delhi_NCR",
+  hyderabad: "Benchmark_INR_Hyderabad",
+  chennai: "Benchmark_INR_Chennai",
+  pune: "Benchmark_INR_Pune",
+};
 
 function num(v) {
   if (v == null) return null;
@@ -34,22 +88,30 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function intInr(v) {
+  const n = num(v);
+  if (n == null) return null;
+  return Math.round(n);
+}
+
 function str(v) {
   if (v == null) return "";
   return String(v).trim();
 }
 
-function round2(n) {
-  if (n == null || !Number.isFinite(n)) return null;
-  return Math.round(n * 100) / 100;
+function slug(s) {
+  return str(s)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
 }
 
-function usdToInr(usd) {
-  return usd != null ? round2(usd * FX_USD_INR) : null;
-}
-
-function usdToPppInr(usd) {
-  return usd != null ? round2(usd * PPP_FACTOR) : null;
+function scarcityToTalent(band) {
+  const key = str(band).toLowerCase();
+  if (key.includes("specialized") || key.includes("critical")) return "High";
+  if (key.includes("standard")) return "Medium";
+  if (key.includes("baseline")) return "Low";
+  return "Medium";
 }
 
 function countBy(rows, keyFn) {
@@ -62,292 +124,375 @@ function countBy(rows, keyFn) {
   return map;
 }
 
-function topN(map, n = 80) {
+function topN(map, n = 200) {
   return [...map.entries()]
     .map(([name, count]) => ({ name, n: count }))
     .sort((a, b) => b.n - a.n)
     .slice(0, n);
 }
 
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let field = "";
-  let inQuotes = false;
-  const src = text.replace(/^\uFEFF/, "");
-  for (let i = 0; i < src.length; i++) {
-    const c = src[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (src[i + 1] === '"') {
-          field += '"';
-          i += 1;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += c;
-      }
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ",") {
-      row.push(field);
-      field = "";
-    } else if (c === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-    } else if (c !== "\r") {
-      field += c;
-    }
-  }
-  if (field.length || row.length) {
-    row.push(field);
-    rows.push(row);
-  }
-  if (!rows.length) return [];
-  const headers = rows[0].map((h) => h.trim());
-  return rows
-    .slice(1)
-    .filter((r) => r.some((cell) => cell.trim() !== ""))
-    .map((r) => {
-      const obj = {};
-      headers.forEach((h, idx) => {
-        obj[h] = r[idx] ?? "";
-      });
-      return obj;
+function parseCsvFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const rows = [];
+    const stream = fs.createReadStream(filePath, { encoding: "utf8" });
+    Papa.parse(stream, {
+      header: true,
+      skipEmptyLines: "greedy",
+      transformHeader: (h) => String(h ?? "").replace(/^\uFEFF/, "").trim(),
+      step: (result) => {
+        if (result.data && typeof result.data === "object") rows.push(result.data);
+      },
+      complete: () => resolve(rows),
+      error: (err) => reject(err),
     });
+  });
 }
 
-function mapFiling(r) {
-  const salaryInr = round2(num(r.Annual_Pay_INR));
-  const salaryPppInr = round2(num(r.Annual_Pay_PPP_INR));
-  const salaryUsd = round2(num(r.Annual_Pay_USD));
+function buildHubPay(r) {
+  const hubPay = {};
+  for (const hub of HUB_IDS) {
+    const v = intInr(r[FILING_HUB_COLS[hub]]);
+    if (v != null) hubPay[hub] = v;
+  }
+  return hubPay;
+}
 
-  return {
-    id: str(r.Record_ID),
-    analyticGrain: str(r.Analytic_Grain) || "LCA_Filing",
-    payPeriod: "Annual",
-    country: str(r.Country_Name),
-    countryCode: str(r.Country_ISO2),
-    stateRegion: str(r.State),
+/**
+ * Minimal Evidence filing row (hydrated to full Observation shape at app load).
+ * Omits SOC_Code, Decision_Date, Source_URL, Notes, Collection_Date, Visa, FY,
+ * constant geography strings, PPP/FX nulls, and duplicate employerGroup.
+ */
+function mapSlimFiling(r, idx) {
+  const hubPay = buildHubPay(r);
+  const salaryInr = hubPay.bengaluru ?? intInr(r.Benchmark_INR_Salary);
+  if (salaryInr == null) return null;
+
+  const roleName = str(r.Role_Name);
+  const experienceLevel = str(r.Experience_Band);
+  if (!roleName || !experienceLevel) return null;
+
+  const employer = str(r.Employer_Name);
+  const out = {
+    id: str(r.Record_ID) || `f${idx + 1}`,
+    countryCode: "IN",
     city: str(r.City),
-    metro: str(r.Metro),
-    geographyLevel: str(r.Geography_Level),
-    geographyName: str(r.Geography_Name),
-    roleName: str(r.Role_Name_Standardized),
-    originalRoleTitle: str(r.Role_Name_Original),
-    roleFamily: str(r.Role_Family),
-    experienceLevel: str(r.Experience_Level_Standardized),
-    careerLevel: str(r.Career_Level_Standardized),
-    payType: str(r.Pay_Type),
-    compensationDefinition: str(r.Compensation_Definition),
+    roleName,
+    roleFamily: str(r.Role_Family) || "Other AI/Tech",
+    experienceLevel,
+    payType: str(r.Pay_Type) || "Base",
     salaryInr,
-    salaryPppInr,
-    salaryPppInrCorrected: salaryPppInr,
-    salaryUsd,
-    pppSuspect: false,
-    employerGroup: str(r.Employer_Group),
-    employerName: str(r.Employer_Name_Original),
-    fxUsdInr: num(r.FX_USD_INR) ?? FX_USD_INR,
-    fxConversionDate: str(r.FX_Conversion_Date),
-    sourceName: str(r.Source_Name),
-    sourceType: "Labor certification filing",
-    sourceUrl: str(r.Source_URL),
-    retrievalDate: str(r.Collection_Date),
-    sampleSize: num(r.Sample_Size) ?? 1,
-    qualityFlag: str(r.Quality_Flag),
-    dataQualityScore: num(r.Data_Quality_Score),
-    notes: str(r.Notes),
+    employerName: employer,
+    qualityFlag: str(r.Data_Quality_Flag),
+    hubPay,
     isEmployerFiling: true,
   };
+  // Drop empty optional strings to shrink JSON
+  if (!out.city) delete out.city;
+  if (!out.qualityFlag) delete out.qualityFlag;
+  if (!employer) delete out.employerName;
+  return out;
 }
 
-function mapBand(r) {
-  const p10Usd = round2(num(r.P10_USD));
-  const p25Usd = round2(num(r.P25_USD));
-  const p50Usd = round2(num(r.P50_USD));
-  const p75Usd = round2(num(r.P75_USD));
-  const p90Usd = round2(num(r.P90_USD));
-  const minUsd = round2(num(r.Market_Min_USD));
-  const maxUsd = round2(num(r.Market_Max_USD));
-  const meanUsd = round2(num(r.Mean_USD));
-  const p50PppInr = round2(num(r.P50_PPP_INR));
+function buildPayBins(values, binCount = PAY_BIN_COUNT) {
+  if (!values.length) return [];
+  const s = [...values].sort((a, b) => a - b);
+  const lo = s[0];
+  const hi = s[s.length - 1];
+  if (lo === hi) return [{ x0: lo, x1: hi, n: s.length }];
+  const width = (hi - lo) / binCount;
+  const out = Array.from({ length: binCount }, (_, i) => ({
+    x0: Math.round(lo + i * width),
+    x1: Math.round(lo + (i + 1) * width),
+    n: 0,
+  }));
+  for (const v of s) {
+    let idx = Math.floor((v - lo) / width);
+    if (idx >= binCount) idx = binCount - 1;
+    if (idx < 0) idx = 0;
+    out[idx].n += 1;
+  }
+  return out;
+}
+
+/**
+ * Keep top-paying progressive sample per Role × Experience (Evidence ledger).
+ * Tie-break with stable id so re-ingests are deterministic.
+ */
+function sampleFilings(all) {
+  const bySlice = new Map();
+  for (const o of all) {
+    const key = `${o.roleName}||${o.experienceLevel}`;
+    let arr = bySlice.get(key);
+    if (!arr) {
+      arr = [];
+      bySlice.set(key, arr);
+    }
+    arr.push(o);
+  }
+
+  const sampled = [];
+  let slicesOverCap = 0;
+  for (const [, arr] of bySlice) {
+    if (arr.length > MAX_PER_SLICE) {
+      slicesOverCap += 1;
+      arr.sort((a, b) => b.salaryInr - a.salaryInr || String(a.id).localeCompare(String(b.id)));
+      sampled.push(...arr.slice(0, MAX_PER_SLICE));
+    } else {
+      sampled.push(...arr);
+    }
+  }
+  return { sampled, sliceCount: bySlice.size, slicesOverCap };
+}
+
+function buildMetrosFromSummary(r) {
+  const metros = {};
+  for (const hub of HUB_IDS) {
+    const cols = SUMMARY_HUB_COLS[hub];
+    const p25 = intInr(r[cols.p25]);
+    const p50 = intInr(r[cols.p50]);
+    const p75 = intInr(r[cols.p75]);
+    const mean = intInr(r[cols.mean]);
+    if (p25 == null && p50 == null && p75 == null && mean == null) continue;
+    metros[hub] = { p25, p50, p75, mean };
+  }
+  return metros;
+}
+
+function mapBand(r, idx, payBinsBySlice) {
+  const roleFamily = str(r.Role_Family);
+  const roleName = str(r.Role_Name);
+  const experienceBand = str(r.Experience_Band);
+  if (!roleFamily || !experienceBand) return null;
+
+  const metros = buildMetrosFromSummary(r);
+  const baseline = metros.bengaluru;
+  if (baseline?.p50 == null) return null;
+
+  const sampleSize = num(r.Sample_Size) ?? 0;
+  const idSeed = `${roleFamily}|${roleName}|${experienceBand}|${idx}`;
+  const id = createHash("sha1").update(idSeed).digest("hex").slice(0, 16);
+  const sliceKey = `${roleName}||${experienceBand}`;
+  const payBins = payBinsBySlice.get(sliceKey) ?? [];
+
+  const { p25, p50, p75, mean } = baseline;
 
   return {
-    id: str(r.Record_ID),
-    roleFamily: str(r.Role_Family),
-    roleFamilyKey: str(r.Role_Family_Key),
-    countryCode: str(r.Country_ISO2),
-    countryName: str(r.Country_Name),
-    geographyLevel: str(r.Geography_Level),
-    geographyName: str(r.Geography_Name),
-    state: str(r.State),
-    city: str(r.City),
-    metro: str(r.Metro),
-    experienceLevel: str(r.Experience_Level_Standardized),
-    experienceBandKey: str(r.Experience_Band_Key),
-    payType: str(r.Pay_Type),
-    compensationDefinition: str(r.Compensation_Definition),
-    p10Usd,
-    p25Usd,
-    p50Usd,
-    p75Usd,
-    p90Usd,
-    minUsd,
-    maxUsd,
-    meanUsd,
-    p10Inr: usdToInr(p10Usd),
-    p25Inr: usdToInr(p25Usd),
-    p50Inr: usdToInr(p50Usd),
-    p75Inr: usdToInr(p75Usd),
-    p90Inr: usdToInr(p90Usd),
-    minInr: usdToInr(minUsd),
-    maxInr: usdToInr(maxUsd),
-    meanInr: usdToInr(meanUsd),
-    p10PppInr: usdToPppInr(p10Usd),
-    p25PppInr: usdToPppInr(p25Usd),
-    p50PppInr: p50PppInr ?? usdToPppInr(p50Usd),
-    p75PppInr: usdToPppInr(p75Usd),
-    p90PppInr: usdToPppInr(p90Usd),
-    minPppInr: usdToPppInr(minUsd),
-    maxPppInr: usdToPppInr(maxUsd),
-    meanPppInr: usdToPppInr(meanUsd),
-    sampleSize: num(r.Sample_Size) ?? 0,
-    geographicPremiumIndex: num(r.Geographic_Premium_Index),
-    leadershipPremiumIndex: num(r.Leadership_Premium_Index),
-    roleDemandIndex: num(r.Role_Demand_Index),
-    talentScarcityIndicator: str(r.Talent_Scarcity_Indicator),
-    compensationCompetitivenessIndex: num(r.Compensation_Competitiveness_Index),
-    sourceName: str(r.Source_Name),
-    collectionDate: str(r.Collection_Date),
-    fxUsdInr: num(r.FX_USD_INR) ?? FX_USD_INR,
-    fxConversionDate: str(r.FX_Conversion_Date),
-    notes: str(r.Notes),
+    id,
+    roleFamily,
+    roleFamilyKey: slug(roleFamily),
+    roleName,
+    countryCode: "IN",
+    countryName: "India",
+    geographyLevel: "Multi-Metro",
+    geographyName: str(r.Target_City_Hub) || "Multi-Metro Calibrated",
+    state: "",
+    city: "",
+    metro: "Multi-Metro Calibrated",
+    experienceLevel: experienceBand,
+    experienceBandKey: slug(experienceBand),
+    payType: "Base",
+    compensationDefinition: "India_Tech_Benchmark_INR",
+    currency: "INR",
+    p10Usd: null,
+    p25Usd: null,
+    p50Usd: null,
+    p75Usd: null,
+    p90Usd: null,
+    minUsd: null,
+    maxUsd: null,
+    meanUsd: null,
+    p10Inr: p25,
+    p25Inr: p25,
+    p50Inr: p50,
+    p75Inr: p75,
+    p90Inr: p75,
+    minInr: p25,
+    maxInr: p75,
+    meanInr: mean,
+    p10PppInr: null,
+    p25PppInr: null,
+    p50PppInr: null,
+    p75PppInr: null,
+    p90PppInr: null,
+    minPppInr: null,
+    maxPppInr: null,
+    meanPppInr: null,
+    sampleSize,
+    geographicPremiumIndex: 1.0,
+    leadershipPremiumIndex: num(r.Gamma_Exp_Mode),
+    roleDemandIndex: null,
+    talentScarcityIndicator: scarcityToTalent(r.Role_Scarcity_Band),
+    compensationCompetitivenessIndex: num(r.Omega_Role),
+    sourceName: "India Tech Roles Benchmark Summary",
+    collectionDate: "",
+    fxUsdInr: 1,
+    fxConversionDate: "",
+    notes: `Role×Experience multi-metro band. Grain=${str(r.Grain)}. Currency=INR.`,
+    metros,
+    payBins,
   };
 }
 
-function main() {
-  for (const p of [CLEANED_CSV, BANDS_CSV]) {
-    if (!fs.existsSync(p)) {
-      console.error(`CSV not found: ${p}`);
-      process.exit(1);
-    }
-  }
-
-  const cleanedRaw = fs.readFileSync(CLEANED_CSV, "utf8");
-  const bandsRaw = fs.readFileSync(BANDS_CSV, "utf8");
-
-  const observations = parseCsv(cleanedRaw)
-    .filter(
-      (r) =>
-        str(r.Include_In_Analysis) === "Y" &&
-        str(r.Pay_Type) === "Base" &&
-        str(r.Analytic_Grain) === "LCA_Filing",
-    )
-    .map(mapFiling)
-    .filter((o) => o.salaryInr != null && o.countryCode);
-
-  const marketBands = parseCsv(bandsRaw)
-    .filter((r) => str(r.Analytic_Grain) === "Market_Band" && str(r.Pay_Type) === "Base")
-    .map(mapBand)
-    .filter((b) => b.roleFamily && b.countryCode);
-
-  const byCountry = countBy(observations, (o) => o.countryCode);
-  const byFamily = countBy(observations, (o) => o.roleFamily);
-  const byRole = countBy(observations, (o) => o.roleName);
-  const byExp = countBy(observations, (o) => o.experienceLevel);
+function buildCatalog(observations, marketBands, filingTotal) {
+  const byFamily = countBy(marketBands, (b) => b.roleFamily);
+  const byRole = countBy(marketBands, (b) => b.roleName);
+  const byExp = countBy(marketBands, (b) => b.experienceLevel);
   const byPay = countBy(observations, (o) => o.payType);
-  const byCity = countBy(observations, (o) => `${o.countryCode}||${o.city}`);
-  const byMetro = countBy(observations, (o) => `${o.countryCode}||${o.metro}`);
-  const byState = countBy(observations, (o) => `${o.countryCode}||${o.stateRegion}`);
-  const byEmployer = countBy(observations, (o) => o.employerGroup || o.employerName);
+  const byEmployer = countBy(observations, (o) => o.employerName || o.employerGroup);
+  const byCity = countBy(observations, (o) => (o.city ? `IN||${o.city}` : ""));
 
-  const countryName = new Map();
-  for (const o of observations) countryName.set(o.countryCode, o.country);
-
-  let collectionDate = "2026-08-24";
+  const rolesByFamily = {};
   for (const b of marketBands) {
-    if (b.collectionDate) {
-      collectionDate = b.collectionDate;
-      break;
-    }
+    if (!rolesByFamily[b.roleFamily]) rolesByFamily[b.roleFamily] = new Map();
+    const m = rolesByFamily[b.roleFamily];
+    m.set(b.roleName, (m.get(b.roleName) ?? 0) + 1);
   }
+  const roleNamesByFamily = Object.fromEntries(
+    Object.entries(rolesByFamily).map(([family, map]) => [
+      family,
+      [...map.entries()]
+        .map(([name, n]) => ({ name, n }))
+        .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)),
+    ]),
+  );
 
-  const catalog = {
+  return {
     generatedFrom: [
-      "deliverables/analytics_ready/AI_Talent_Benchmark_CLEANED.csv",
-      "deliverables/analytics_ready/AI_Talent_Benchmark_MARKET_BANDS.csv",
+      "ai_salary/india_tech_roles_benchmark.csv",
+      "ai_salary/india_tech_roles_benchmark_summary.csv",
     ],
-    standardizedDuplicate: "deliverables/analytics_ready/AI_Talent_Benchmark_STANDARDIZED.csv",
     rowCount: observations.length,
+    filingPopulation: filingTotal,
     bandCount: marketBands.length,
-    grain: "LCA_Filing + Market_Band",
+    grain: "Sampled Filing + Role_x_Experience (Multi-Metro)",
     grainNotes:
-      "PRIMARY: Market_Band P10–P90 + Market Value (P50 × Geographic Premium × Compensation Competitiveness). Filings for competitor pull / evidence. FX and PPP are optional analytical views — not the default market value.",
-    countries: [...byCountry.entries()]
-      .map(([code, n]) => ({ code, name: countryName.get(code) ?? code, n }))
-      .sort((a, b) => b.n - a.n),
+      "PRIMARY: India Role×Experience summary bands with per-hub INR percentiles (Bengaluru + 5 metros). Evidence filings are a top-paying progressive sample (≤150 per Role×Experience). payBins on bands use the full filing population. No US FX/PPP conversion layer.",
+    countries: [{ code: "IN", name: "India", n: observations.length }],
     roleFamilies: topN(byFamily, 200),
-    roleNames: topN(byRole, 300),
+    roleNames: topN(byRole, 500),
+    roleNamesByFamily,
     experienceLevels: [...byExp.entries()]
       .map(([name, n]) => ({ name, n }))
       .sort((a, b) => b.n - a.n),
     payTypes: [...byPay.entries()].map(([name, n]) => ({ name, n })),
     cities: [...byCity.entries()]
       .map(([key, n]) => {
-        const [countryCode, name] = key.split("||");
-        return { countryCode, name, n };
+        const [, name] = key.split("||");
+        return { countryCode: "IN", name, n };
       })
       .filter((c) => c.name)
       .sort((a, b) => b.n - a.n)
-      .slice(0, 500),
-    metros: [...byMetro.entries()]
-      .map(([key, n]) => {
-        const [countryCode, name] = key.split("||");
-        return { countryCode, name, n };
-      })
-      .filter((m) => m.name)
-      .sort((a, b) => b.n - a.n)
       .slice(0, 200),
-    states: [...byState.entries()]
-      .map(([key, n]) => {
-        const [countryCode, name] = key.split("||");
-        return { countryCode, name, n };
-      })
-      .filter((s) => s.name)
-      .sort((a, b) => b.n - a.n),
-    employerGroups: topN(byEmployer, 100),
-    fxUsdInr: FX_USD_INR,
-    pppFactor: PPP_FACTOR,
-    fxConversionDate: observations[0]?.fxConversionDate ?? "2026-08-12",
-    collectionDate,
-    compensationDefinition: "LCA_Offered_Base_Wage",
+    metros: HUB_IDS.map((id) => ({
+      countryCode: "IN",
+      name:
+        id === "bengaluru"
+          ? "Bengaluru"
+          : id === "delhi_ncr"
+            ? "Delhi-NCR"
+            : id.charAt(0).toUpperCase() + id.slice(1),
+      n: observations.length,
+    })),
+    states: [],
+    employerGroups: topN(byEmployer, 120),
+    hubs: HUB_IDS,
+    fxUsdInr: 1,
+    pppFactor: 1,
+    fxConversionDate: "",
+    collectionDate: "",
+    compensationDefinition: "India_Tech_Benchmark_INR",
     disclaimer:
-      "US LCA certified offered base wages only — not total compensation, not confirmed offers to your employee, not individual headcount.",
-    countryFxToInr: { US: FX_USD_INR, IN: 1 },
-    worldBankPpp: { US: 1, IN: PPP_FACTOR },
+      "India tech multi-metro benchmarks (Bengaluru baseline = 1.0). Hub columns are geographic cost indices. Evidence rows are a progressive sample; band percentiles and payBins reflect the full population.",
+    countryFxToInr: { IN: 1 },
+    worldBankPpp: { IN: 1 },
   };
+}
+
+async function main() {
+  for (const p of [FILING_CSV, SUMMARY_CSV]) {
+    if (!fs.existsSync(p)) {
+      console.error(`CSV not found: ${p}`);
+      process.exit(1);
+    }
+  }
+
+  console.log(`Parsing filings: ${FILING_CSV}`);
+  const filingRaw = await parseCsvFile(FILING_CSV);
+  console.log(`  raw filing rows: ${filingRaw.length}`);
+
+  console.log(`Parsing summary bands: ${SUMMARY_CSV}`);
+  const summaryRaw = await parseCsvFile(SUMMARY_CSV);
+  console.log(`  raw summary rows: ${summaryRaw.length}`);
+
+  const allFilings = filingRaw
+    .map((r, i) => mapSlimFiling(r, i))
+    .filter((o) => o && o.salaryInr != null);
+
+  // Full-population histogram bins per Role × Experience (before sampling).
+  const payBinsBySlice = new Map();
+  {
+    const salaries = new Map();
+    for (const o of allFilings) {
+      const key = `${o.roleName}||${o.experienceLevel}`;
+      let arr = salaries.get(key);
+      if (!arr) {
+        arr = [];
+        salaries.set(key, arr);
+      }
+      arr.push(o.salaryInr);
+    }
+    for (const [key, vals] of salaries) {
+      payBinsBySlice.set(key, buildPayBins(vals));
+    }
+  }
+
+  const { sampled, sliceCount, slicesOverCap } = sampleFilings(allFilings);
+  console.log(
+    `  sampled Evidence filings: ${sampled.length} (from ${allFilings.length}; ${sliceCount} slices; ${slicesOverCap} over cap ${MAX_PER_SLICE})`,
+  );
+
+  const marketBands = summaryRaw
+    .map((r, i) => mapBand(r, i, payBinsBySlice))
+    .filter((b) => b && b.metros?.bengaluru?.p50 != null);
+
+  const catalog = buildCatalog(sampled, marketBands, allFilings.length);
 
   const outDir = path.join(appRoot, "public", "data");
   fs.mkdirSync(outDir, { recursive: true });
 
-  const obsJson = JSON.stringify(observations);
+  const obsJson = JSON.stringify(sampled);
   const bandsJson = JSON.stringify(marketBands);
   fs.writeFileSync(path.join(outDir, "observations.json"), obsJson);
   fs.writeFileSync(path.join(outDir, "marketBands.json"), bandsJson);
   fs.writeFileSync(path.join(outDir, "catalog.json"), JSON.stringify(catalog, null, 2));
 
-  const obsMb = (Buffer.byteLength(obsJson) / (1024 * 1024)).toFixed(1);
-  const bandsMb = (Buffer.byteLength(bandsJson) / (1024 * 1024)).toFixed(1);
+  const obsMb = Buffer.byteLength(obsJson) / (1024 * 1024);
+  const bandsMb = Buffer.byteLength(bandsJson) / (1024 * 1024);
 
-  console.log(`Ingested ${observations.length} LCA filings (${obsMb} MB)`);
-  console.log(`Ingested ${marketBands.length} market bands (${bandsMb} MB)`);
-  console.log(`STANDARDIZED is duplicate of CLEANED — not ingested separately (${STANDARDIZED_CSV})`);
-  if (parseFloat(obsMb) > 10) {
-    console.warn(`observations.json exceeds 10 MB — monitor client load performance.`);
+  const sample = marketBands[0];
+  console.log(`Wrote observations.json: ${sampled.length} rows · ${obsMb.toFixed(2)} MB`);
+  console.log(`Wrote marketBands.json: ${marketBands.length} bands · ${bandsMb.toFixed(2)} MB`);
+  console.log("Sample marketBands[0] hub medians (metros.*):");
+  if (sample?.metros) {
+    for (const hub of HUB_IDS) {
+      const m = sample.metros[hub];
+      console.log(
+        `  ${hub.padEnd(12)} P25=${m?.p25}  Median=${m?.p50}  P75=${m?.p75}  Mean=${m?.mean}`,
+      );
+    }
+    console.log(
+      `  role=${sample.roleFamily} / ${sample.roleName} · exp=${sample.experienceLevel} · payBins=${sample.payBins?.length ?? 0}`,
+    );
+  }
+  if (obsMb > 2) {
+    console.warn(`WARNING: observations.json is ${obsMb.toFixed(2)} MB (target < 2 MB).`);
+    process.exitCode = 1;
+  } else {
+    console.log("Payload check OK: observations.json < 2 MB");
   }
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

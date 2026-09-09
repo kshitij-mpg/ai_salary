@@ -11,19 +11,38 @@ import {
 } from "recharts";
 import type { GapAnalysis } from "../types";
 import { histogramBuckets, metricOf } from "../lib/analysis";
-import { formatCompactINR } from "../lib/money";
-import { isPresent } from "../lib/money";
+import { hubMultiplier } from "../lib/metros";
+import { formatCompactINR, isPresent } from "../lib/money";
 
+/**
+ * Prefer pre-computed full-population payBins on the matched band (scaled by hub),
+ * fall back to sampled observation values when bins are absent.
+ */
 export function PayHistogram({ analysis }: { analysis: GapAnalysis }) {
-  const values = analysis.matched
-    .map((o) => metricOf(o, analysis.metric))
-    .filter(isPresent);
-  const buckets = histogramBuckets(values, 14);
+  const preBins = analysis.matchedBandRecord?.payBins;
+  const mult = hubMultiplier(analysis.hubId);
+
+  let buckets: { x0: number; x1: number; n: number }[];
+  if (preBins?.length) {
+    buckets = preBins.map((b) => ({
+      x0: Math.round(b.x0 * mult),
+      x1: Math.round(b.x1 * mult),
+      n: b.n,
+    }));
+  } else {
+    const values = analysis.matched
+      .map((o) => metricOf(o, analysis.metric, analysis.hubId))
+      .filter(isPresent);
+    buckets = histogramBuckets(values, 14);
+  }
+
   const data = buckets.map((b, i) => ({
     name: formatCompactINR(b.x0),
     n: b.n,
     mid: (b.x0 + b.x1) / 2,
-    containsYou: analysis.yourPay >= b.x0 && (i === buckets.length - 1 ? analysis.yourPay <= b.x1 : analysis.yourPay < b.x1),
+    containsYou:
+      analysis.yourPay >= b.x0 &&
+      (i === buckets.length - 1 ? analysis.yourPay <= b.x1 : analysis.yourPay < b.x1),
   }));
 
   if (!data.length) {
@@ -43,7 +62,7 @@ export function PayHistogram({ analysis }: { analysis: GapAnalysis }) {
               border: "1px solid rgba(12,26,46,0.1)",
               fontSize: 12,
             }}
-            formatter={(v: number) => [v, "Observations"]}
+            formatter={(v: number) => [v, "Filings"]}
           />
           <ReferenceLine
             x={data.find((d) => d.containsYou)?.name}

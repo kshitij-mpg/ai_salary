@@ -73,6 +73,24 @@ body {
   color: #0f766e;
 }
 
+/* Evidence confidence (sample size) — Low grey · Medium blue · High green · Very High dark green */
+.badge-conf-low {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+.badge-conf-medium {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.badge-conf-high {
+  background: #f0fdf4;
+  color: #15803d;
+}
+.badge-conf-very-high {
+  background: #14532d;
+  color: #ecfdf5;
+}
+
 .btn-primary {
   border-radius: 0.65rem;
   background: #0c1a2e;

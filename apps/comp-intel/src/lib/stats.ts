@@ -1,10 +1,15 @@
-import type { MetricMode, Observation, SourceGroup } from "../types";
+import type { HubId, MetricMode, Observation, SourceGroup } from "../types";
 import { DIRECTIONAL_N } from "./constants";
 import { isPresent } from "./money";
 
-export function metricValue(o: Observation, metric: MetricMode): number | null {
+export function metricValue(
+  o: Observation,
+  metric: MetricMode,
+  hubId?: HubId,
+): number | null {
   if (metric === "ppp") return o.salaryPppInrCorrected;
-  // market, talent, fx, nominal → cash FX INR
+  if (hubId && o.hubPay?.[hubId] != null) return o.hubPay[hubId]!;
+  // market, talent, fx, nominal → cash INR (Bengaluru baseline on India ingest)
   return o.salaryInr;
 }
 

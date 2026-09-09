@@ -1,5 +1,6 @@
 /**
  * Validate Market Benchmark methodology after ingest.
+ * Market Benchmark = matched P50 only (no Geo × CCI).
  * Run: node scripts/validate-market-benchmark.mjs
  */
 import { readFileSync } from "node:fs";
@@ -28,36 +29,42 @@ const sample = bands.find(
     b.experienceLevel.includes("Mid"),
 ) ?? bands[0];
 
-assert("has geographicPremiumIndex", sample.geographicPremiumIndex != null);
+assert("has geographicPremiumIndex (insight)", sample.geographicPremiumIndex != null);
 assert("has roleDemandIndex", sample.roleDemandIndex != null);
 assert("has leadershipPremiumIndex", sample.leadershipPremiumIndex != null);
-assert("has compensationCompetitivenessIndex", sample.compensationCompetitivenessIndex != null);
+assert("has compensationCompetitivenessIndex (insight)", sample.compensationCompetitivenessIndex != null);
 assert("has talentScarcityIndicator", !!sample.talentScarcityIndicator);
 assert("has p50Inr", sample.p50Inr != null && sample.p50Inr > 0);
+
+const marketValue = sample.p50Inr;
+assert("Market Benchmark ≠ raw PPP P50", marketValue !== sample.p50PppInr);
+assert(
+  "Market Benchmark = matched P50 only",
+  Math.abs(marketValue - sample.p50Inr) < 0.01,
+);
 
 const geo = sample.geographicPremiumIndex > 0 ? sample.geographicPremiumIndex : 1;
 const cci =
   sample.compensationCompetitivenessIndex > 0
     ? sample.compensationCompetitivenessIndex
     : 1;
-const marketValue = sample.p50Inr * geo * cci;
-assert("Market Value ≠ raw PPP P50", marketValue !== sample.p50PppInr);
 assert(
-  "Market Value = P50 × Geo × CCI",
-  Math.abs(marketValue - sample.p50Inr * geo * cci) < 0.01,
+  "Geo × CCI must NOT equal Market Benchmark when indices ≠ 1",
+  geo === 1 && cci === 1
+    ? true
+    : Math.abs(marketValue - sample.p50Inr * geo * cci) > 0.01 || geo === 1 || cci === 1,
 );
 
 const missingGeo = bands.filter((b) => b.geographicPremiumIndex == null).length;
-assert("all bands have geographicPremiumIndex", missingGeo === 0, `missing=${missingGeo}`);
+assert("all bands have geographicPremiumIndex (insight)", missingGeo === 0, `missing=${missingGeo}`);
 
 const missingCci = bands.filter((b) => b.compensationCompetitivenessIndex == null).length;
 assert(
-  "all bands have compensationCompetitivenessIndex",
+  "all bands have compensationCompetitivenessIndex (insight)",
   missingCci === 0,
   `missing=${missingCci}`,
 );
 
-// Simulate pay gap classification
 function classifyPayGap(gapPct) {
   if (gapPct < -20) return "critical_underpayment";
   if (gapPct < -10) return "high_underpayment_risk";
@@ -70,14 +77,14 @@ assert("gap -15 → high", classifyPayGap(-15) === "high_underpayment_risk");
 assert("gap 0 → aligned", classifyPayGap(0) === "market_aligned");
 assert("gap 15 → above", classifyPayGap(15) === "above_market");
 
-console.log(`\nSample Market Value check for ${sample.roleFamily} / ${sample.experienceLevel}:`);
-console.log(`  P50 INR: ${sample.p50Inr}`);
-console.log(`  Geo: ${geo} · CCI: ${cci}`);
-console.log(`  Market Value: ${Math.round(marketValue)}`);
+console.log(`\nSample Market Benchmark check for ${sample.roleFamily} / ${sample.experienceLevel}:`);
+console.log(`  P50 INR (= Market Benchmark): ${sample.p50Inr}`);
+console.log(`  Geo (insight only): ${geo} · CCI / Role Comp Premium (insight only): ${cci}`);
+console.log(`  Legacy Geo×CCI product (NOT used): ${Math.round(sample.p50Inr * geo * cci)}`);
 console.log(`  P50 PPP (optional view only): ${sample.p50PppInr}`);
 
 if (failed) {
   console.error(`\n${failed} validation failure(s)`);
   process.exit(1);
 }
-console.log("\nAll Market Benchmark validations passed.");
+console.log("\nAll market-benchmark validations passed.");

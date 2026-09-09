@@ -3,13 +3,26 @@ export type PayType = "Base" | "Base_Salary" | "Total_Compensation" | string;
 
 /**
  * Benchmark methodology switcher — each mode has a distinct calculation path.
- * - talent (default): Talent Market Value = Market Benchmark × Role Demand × Scarcity
- * - market: Market Benchmark Value = P50 × Geo × CCI
+ * - talent (default): Talent Market Value = matched P50 × Role Demand × Scarcity
+ * - market: Market Benchmark Value = matched P50 only (band already includes role × geo × experience)
  * - fx: pure USD × FX_USD_INR (no market / scarcity / demand)
  * - ppp: pure USD × PPP_Conversion_Factor (purchasing power only)
+ * Geo Premium and CCI are insight-only — never salary multipliers.
  * Legacy aliases: "nominal" → treated as fx in loaders.
  */
 export type MetricMode = "market" | "talent" | "fx" | "ppp" | "nominal";
+
+/** Indian target market hub for multi-metro INR benchmark scaling (Bengaluru = 1.0). */
+export type HubId =
+  | "bengaluru"
+  | "mumbai"
+  | "delhi_ncr"
+  | "hyderabad"
+  | "chennai"
+  | "pune";
+
+/** Strategic Compensation Target percentile (drives Pay_Gap / remediation). */
+export type TargetPercentile = "p25" | "p50" | "p75";
 
 export type ViewId =
   | "desk"
@@ -41,6 +54,9 @@ export type PayGapClass =
 
 export type CompetitiveThreatTier = "low" | "medium" | "high" | "critical";
 
+/** Sample-size confidence for market / competitor estimates (executive display). */
+export type EvidenceConfidence = "low" | "medium" | "high" | "very_high";
+
 export interface CompetitorCompany {
   employerKey: string;
   employerLabel: string;
@@ -67,6 +83,8 @@ export interface Observation {
   careerLevel: string;
   payType: PayType;
   compensationDefinition: string;
+  /** Hardcoded INR for India multi-metro ingest. */
+  currency?: string;
   salaryInr: number;
   salaryPppInr: number | null;
   salaryPppInrCorrected: number | null;
@@ -74,6 +92,7 @@ export interface Observation {
   pppSuspect: boolean;
   employerGroup: string;
   employerName: string;
+  caseNumber?: string;
   fxUsdInr: number | null;
   fxConversionDate: string;
   sourceName: string;
@@ -85,12 +104,33 @@ export interface Observation {
   dataQualityScore: number | null;
   notes: string;
   isEmployerFiling: boolean;
+  /**
+   * Per-hub India INR benchmarks (filing grain).
+   * bengaluru ≡ Benchmark_INR_Salary; others are metro-scaled integers.
+   */
+  hubPay?: Partial<Record<HubId, number>>;
+  benchmarkInrBengaluru?: number | null;
+  benchmarkInrMumbai?: number | null;
+  benchmarkInrDelhiNcr?: number | null;
+  benchmarkInrHyderabad?: number | null;
+  benchmarkInrChennai?: number | null;
+  benchmarkInrPune?: number | null;
+}
+
+/** Per-hub summary percentile payload (INR integers). */
+export interface HubBandStats {
+  p25: number | null;
+  p50: number | null;
+  p75: number | null;
+  mean: number | null;
 }
 
 export interface MarketBandRecord {
   id: string;
   roleFamily: string;
   roleFamilyKey: string;
+  /** Present on India Role×Experience summary bands. */
+  roleName?: string;
   countryCode: string;
   countryName: string;
   geographyLevel: string;
@@ -102,6 +142,7 @@ export interface MarketBandRecord {
   experienceBandKey: string;
   payType: string;
   compensationDefinition: string;
+  currency?: string;
   p10Usd: number | null;
   p25Usd: number | null;
   p50Usd: number | null;
@@ -137,6 +178,10 @@ export interface MarketBandRecord {
   fxUsdInr: number;
   fxConversionDate: string;
   notes: string;
+  /** Multi-metro INR bands keyed by HubId (Bengaluru baseline + 5 metros). */
+  metros?: Partial<Record<HubId, HubBandStats>>;
+  /** Pre-computed Bengaluru salary histogram bins (full population) for Recharts. */
+  payBins?: { x0: number; x1: number; n: number }[];
 }
 
 export interface NamedCount {
@@ -148,18 +193,23 @@ export interface Catalog {
   generatedFrom: string[];
   standardizedDuplicate?: string;
   rowCount: number;
+  /** Full filing population before Evidence sampling. */
+  filingPopulation?: number;
   bandCount: number;
   grain: string;
   grainNotes: string;
   countries: { code: string; name: string; n: number }[];
   roleFamilies: NamedCount[];
   roleNames: NamedCount[];
+  /** Nested Role_Name facets under each Role_Family (India summary grain). */
+  roleNamesByFamily?: Record<string, NamedCount[]>;
   experienceLevels: NamedCount[];
   payTypes: NamedCount[];
   cities: { countryCode: string; name: string; n: number }[];
   metros: { countryCode: string; name: string; n: number }[];
   states: { countryCode: string; name: string; n: number }[];
   employerGroups: NamedCount[];
+  hubs?: string[];
   fxUsdInr: number;
   pppFactor: number;
   fxConversionDate: string;
@@ -252,6 +302,12 @@ export interface DestinationPull {
 export interface GapAnalysis {
   yourPay: number;
   metric: MetricMode;
+  /** Active Indian target hub (Bengaluru baseline or metro-scaled). */
+  hubId: HubId;
+  /** Hub multiplier applied to FX INR market bands (1.0 = Bengaluru). */
+  hubMultiplier: number;
+  /** Strategic Compensation Target (P25 / P50 / P75). */
+  targetPercentile: TargetPercentile;
   band: MarketBand;
   bandSource: BandSource;
   matchedBandRecord: MarketBandRecord | null;
@@ -269,9 +325,9 @@ export interface GapAnalysis {
    * Distinct from yourPay (current salary), which never changes with mode.
    */
   marketValue: number | null;
-  /** Always P50 × Geo × CCI (FX currency of the band), for cross-mode comparison. */
+  /** Always matched P50 (FX currency of the band), for cross-mode comparison. */
   marketBenchmarkValue: number | null;
-  /** Always Talent Market Value (FX currency), for cross-mode comparison. */
+  /** Always Talent Market Value = P50 × Demand × Scarcity (FX currency). */
   talentMarketValue: number | null;
   /** Human label for the selected benchmark in the active mode. */
   benchmarkLabel: string;

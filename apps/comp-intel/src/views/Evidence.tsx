@@ -4,12 +4,16 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useGapAnalysis, useApp } from "../state";
 import { Card, EmptyState, SectionTitle, Stat, ThreatBadge, inputClass } from "../components/ui";
 import { downloadCsv, observationsToCsv } from "../lib/export";
+import { HUB_OPTIONS, hubOption } from "../lib/metros";
 import { formatCompactINR, formatINR } from "../lib/money";
 import { metricValue } from "../lib/stats";
 import {
+  geographicPremiumInsight,
   MARKET_POSITION_LABEL,
   PAY_GAP_LABEL,
   metricCurrencyLabel,
+  roleCompensationPremiumInsight,
+  roleDemandInsight,
 } from "../lib/marketBenchmark";
 
 export function EvidenceView() {
@@ -18,10 +22,10 @@ export function EvidenceView() {
   const [q, setQ] = useState("");
   const [aboveOnly, setAboveOnly] = useState(false);
   const parentRef = useRef<HTMLDivElement>(null);
+  const hub = hubOption(state.hub);
 
-  const metric = state.metric;
-  const isPpp = metric === "ppp";
-  const mode = metric === "nominal" ? "fx" : metric;
+  const metric = "market" as const;
+  const mode = "market" as const;
 
   const rows = useMemo(() => {
     if (!analysis) return [];
@@ -39,11 +43,11 @@ export function EvidenceView() {
       );
     }
     return [...list].sort((a, b) => {
-      const av = metricValue(a, metric) ?? a.salaryInr;
-      const bv = metricValue(b, metric) ?? b.salaryInr;
+      const av = metricValue(a, metric, state.hub) ?? a.salaryInr;
+      const bv = metricValue(b, metric, state.hub) ?? b.salaryInr;
       return bv - av;
     });
-  }, [analysis, q, aboveOnly, metric]);
+  }, [analysis, q, aboveOnly, state.hub]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -54,12 +58,12 @@ export function EvidenceView() {
 
   if (!analysis) {
     return (
-      <EmptyState title="No evidence slice" body="Match a market on Desk to inspect LCA filing rows." />
+      <EmptyState title="No evidence slice" body="Match a market on Desk to inspect India multi-metro filing samples." />
     );
   }
 
   const selected = rows.find((r) => r.id === state.selectedId) ?? null;
-  const selectedPay = selected ? metricValue(selected, metric) : null;
+  const selectedPay = selected ? metricValue(selected, metric, state.hub) : null;
   const selectedDelta =
     selectedPay != null ? selectedPay - analysis.yourPay : null;
 
@@ -68,7 +72,7 @@ export function EvidenceView() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <SectionTitle
           title="Market evidence"
-          subtitle={`Market salary distribution + competitor filings for this role · ${metricCurrencyLabel(mode)}. Benchmarks recalculate with mode — Talent / Market / FX / PPP use distinct formulas.`}
+          subtitle={`India multi-metro filing samples · ${hub.shortLabel} hub · strategic target ${analysis.benchmarkLabel}.`}
         />
         <button
           type="button"
@@ -86,21 +90,17 @@ export function EvidenceView() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="p-4">
-          <Stat label="Market median (P50)" value={formatCompactINR(analysis.marketMedian)} />
+          <Stat
+            label="Market Benchmark (P50)"
+            value={formatCompactINR(analysis.marketBenchmarkValue ?? analysis.marketMedian)}
+            hint="Matched P50 only"
+          />
         </Card>
         <Card className="p-4">
           <Stat
             label={analysis.benchmarkLabel}
             value={formatCompactINR(analysis.marketValue)}
-            hint={
-              mode === "talent"
-                ? "Market Benchmark × Demand × Scarcity"
-                : mode === "market"
-                  ? "P50 × Geo × CCI"
-                  : mode === "fx"
-                    ? "Current USD × FX (no adjustments)"
-                    : "Current USD × PPP factor"
-            }
+            hint="Strategic Compensation Target for active hub"
           />
         </Card>
         <Card className="p-4">
@@ -120,8 +120,12 @@ export function EvidenceView() {
         <Card className="p-4">
           <Stat
             label="Expected offer"
-            value={`${formatCompactINR(analysis.expectedOfferLow)} – ${formatCompactINR(analysis.expectedOfferHigh)}`}
-            hint="P75–P90"
+            value={
+              analysis.offerRangeSupported
+                ? `${formatCompactINR(analysis.expectedOfferLow)} – ${formatCompactINR(analysis.expectedOfferHigh)}`
+                : "—"
+            }
+            hint={analysis.offerRangeSupported ? "P75–P90" : "Talent Market View only"}
           />
         </Card>
       </div>
@@ -144,11 +148,43 @@ export function EvidenceView() {
       <Card className="p-4 text-sm leading-relaxed text-ink/85">
         <p>
           <strong>Market position:</strong> {MARKET_POSITION_LABEL[analysis.marketPosition]} ·{" "}
-          <strong>Comp. competitiveness:</strong>{" "}
-          {analysis.compensationCompetitivenessIndex?.toFixed(2) ?? "—"} ·{" "}
+          <strong>Talent Market Value:</strong>{" "}
+          {formatCompactINR(analysis.talentMarketValue)} ·{" "}
           <strong>Role demand:</strong> {analysis.roleDemandIndex?.toFixed(2) ?? "—"} ·{" "}
           <strong>Talent scarcity:</strong> {analysis.talentScarcityIndicator ?? "—"}
         </p>
+        <p className="mt-2 text-xs text-mute">
+          {roleDemandInsight(analysis.roleDemandIndex) ?? ""}
+        </p>
+        <p className="mt-1 text-xs text-mute">
+          {geographicPremiumInsight(
+            analysis.geographicPremiumIndex,
+            analysis.hubMultiplier !== 1
+              ? hub.shortLabel
+              : analysis.matchedBandRecord?.geographyName || analysis.bandGeographyLevel,
+            analysis.hubMultiplier !== 1 ? "the Bengaluru baseline" : "the India national",
+          ) ?? "Geographic premium: —"}{" "}
+          (insight only)
+        </p>
+        <p className="mt-1 text-xs text-mute">
+          {roleCompensationPremiumInsight(
+            analysis.compensationCompetitivenessIndex,
+            state.profile.roleFamily,
+          ) ?? "Role compensation premium: —"}{" "}
+          (insight only)
+        </p>
+        <div className="mt-3 rounded-lg border border-ink/8 bg-ink/[0.02] p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-mute">
+            Geographic cost premium scaling (vs Bengaluru = 1.00)
+          </p>
+          <ul className="mt-2 grid gap-1 text-xs text-ink/80 sm:grid-cols-2">
+            {HUB_OPTIONS.filter((h) => h.id !== "bengaluru").map((h) => (
+              <li key={h.id} className={h.id === hub.id ? "font-medium text-copper" : undefined}>
+                {h.legend}
+              </li>
+            ))}
+          </ul>
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {analysis.riskSupported ? (
             <ThreatBadge
@@ -156,7 +192,7 @@ export function EvidenceView() {
               score={analysis.competitiveThreatScore}
             />
           ) : (
-            <span className="text-xs text-mute">Threat scoring disabled in FX/PPP</span>
+            <span className="text-xs text-mute">Threat scoring: Talent Market View only</span>
           )}
           <span className="text-xs text-mute">
             Top hiring companies:{" "}
@@ -229,7 +265,7 @@ export function EvidenceView() {
 
               <div className="rounded-xl border border-copper/30 bg-copper/5 p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-copper">
-                  Filing salary · {isPpp ? "PPP-adjusted INR (optional view)" : "Cash FX INR"}
+                  Filing salary · {hub.shortLabel} hub INR
                 </div>
                 <div className="mt-1 font-display text-2xl tabular text-ink">
                   {formatINR(selectedPay)}
@@ -254,14 +290,14 @@ export function EvidenceView() {
                 <Row k="Pay type" v={selected.payType} />
                 <Row k="Quality flag" v={selected.qualityFlag} />
                 <Row
-                  k="Salary INR (cash FX)"
-                  v={formatCompactINR(selected.salaryInr)}
-                  active={!isPpp}
+                  k={`Hub pay · ${hub.shortLabel}`}
+                  v={formatCompactINR(selected.hubPay?.[state.hub] ?? selected.salaryInr)}
+                  active
                 />
                 <Row
-                  k="PPP-adjusted INR (optional)"
-                  v={formatCompactINR(selected.salaryPppInrCorrected)}
-                  active={isPpp}
+                  k="Bengaluru baseline INR"
+                  v={formatCompactINR(selected.salaryInr)}
+                  active={false}
                 />
                 <Row k="Source" v={selected.sourceName} />
               </dl>
@@ -273,12 +309,12 @@ export function EvidenceView() {
                   rel="noreferrer"
                   className="inline-block text-xs text-copper hover:underline"
                 >
-                  Open DOL LCA disclosure
+                  Open source
                 </a>
               ) : null}
             </div>
           ) : (
-            <p className="text-sm text-mute">Select a row to inspect the LCA filing.</p>
+            <p className="text-sm text-mute">Select a row to inspect the India filing sample.</p>
           )}
         </Card>
       </div>
